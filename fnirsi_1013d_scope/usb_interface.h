@@ -184,7 +184,6 @@
 #define USBC_INTTX_FLAG_EP2               0x04
 #define USBC_INTTX_FLAG_EP1               0x02
 #define USBC_INTTX_FLAG_EP0               0x01
-
 //----------------------------------------------------------------------------------------------------------------------------------
 
 #define USBC_INTRX_FLAG_EP5               0x20
@@ -192,7 +191,6 @@
 #define USBC_INTRX_FLAG_EP3               0x08
 #define USBC_INTRX_FLAG_EP2               0x04
 #define USBC_INTRX_FLAG_EP1               0x02
-
 //----------------------------------------------------------------------------------------------------------------------------------
 //TX EP Control and Status Register for Device only
 
@@ -216,7 +214,6 @@
 
 #define USBC_BP_RXMAXP_PACKET_COUNT        0x0800
 #define USBC_BP_RXMAXP_MAXIMUM_PAYLOAD     0x0001
-
 //----------------------------------------------------------------------------------------------------------------------------------
 //RX EP Control and Status Register for Device only
 
@@ -239,12 +236,10 @@
 //TX EP FIFO size control
 
 #define USBC_BP_RXFIFOSZ_DPB                  0x10
-
 //----------------------------------------------------------------------------------------------------------------------------------
 //TX EP FIFO size control
 
 #define USBC_BP_TXFIFOSZ_DPB                  0x10
-
 //----------------------------------------------------------------------------------------------------------------------------------
 
 #define DEVICE_DESCRIPTOR                      1
@@ -252,14 +247,17 @@
 #define STRING_DESCRIPTOR                      3
 #define INTERFACE_DESCRIPTOR                   4
 #define ENDPOINT_DESCRIPTOR                    5
-#define DEVICE_QUALIFIER_DESCRIPTOR            6
+#define DEVICE_QUALIFIER_DESCRIPTOR            6 //USB_REQ_GET_DESCRIPTOR                  0x06
 #define OTHER_SPEED_CONFIGURATION_DESCRIPTOR   7
 #define INTERFACE_POWER1_DESCRIPTOR            8
 #define INTERFACE_ASSOC_DESCRIPTOR            11
 #define HID_DESCRIPTOR_TYPE                   33
 #define REPORT_DESCRIPTOR                     34
+#define USB_DT_CS_INTERFACE                   36    //NOVE  doplnit kod
 
 //----------------------------------------------------------------------------------------------------------------------------------
+
+
 
 typedef struct
 {
@@ -310,6 +308,50 @@ typedef struct
 
 //----------------------------------------------------------------------------------------------------------------------------------
 
+typedef struct {
+	uint8 bLength;
+	uint8 bDescriptorType;
+	uint8 bFirstInterface;
+	uint8 bInterfaceCount;
+	uint8 bFunctionClass;
+	uint8 bFunctionSubClass;
+	uint8 bFunctionProtocol;
+	uint8 iFunction;
+} __attribute__((packed)) USB_InterfaceAssocDescriptor;
+
+typedef struct
+{
+	uint8 bLength;
+	uint8 bDescriptorType;
+	uint8 bDescriptorSubType;
+	uint16 bcdCDC;
+} __attribute__ ((packed)) USB_CDC_HeaderDescriptor;
+
+typedef struct {
+	uint8 bLength;
+	uint8 bDescriptorType;
+	uint8 bDescriptorSubType;
+	uint8 bmCapabilities;
+	uint8 bDataInterface;
+} __attribute__((packed)) USB_CDC_CallMgmtDescriptor;
+
+typedef struct {
+	uint8 bLength;
+	uint8 bDescriptorType;
+	uint8 bDescriptorSubType;
+	uint8 bmCapabilities;
+} __attribute__ ((packed)) USB_CDC_AcmDescriptor;
+
+typedef struct {
+	uint8 bLength;
+	uint8 bDescriptorType;
+	uint8 bDescriptorSubType;
+	uint8 bMasterInterface0;
+	uint8 bSlaveInterface0;
+} __attribute__ ((packed)) USB_CDC_UnionDescriptor;
+
+//----------------------------------------------------------------------------------------------------------------------------------
+
 typedef struct
 {
   uint8  bLegth;
@@ -329,6 +371,59 @@ typedef struct
   USB_EndPointDescriptor  endpoint_descriptor[2];
 } __attribute__ ((packed)) Mass_Storage_Descriptor;
 
+//----------------------------------------------------------------------------------------------------------------------------------
+
+typedef struct {
+	USB_ConfigDescriptor    configuration_descriptor;
+	//USB_InterfaceAssocDescriptor    interface_assoc_descriptor;
+	USB_InterfaceDescriptor control_interface_descritor;
+	USB_CDC_HeaderDescriptor header_descriptor;
+	USB_CDC_CallMgmtDescriptor call_mgmt_descriptor;
+	USB_CDC_AcmDescriptor acm_descriptor;
+	USB_CDC_UnionDescriptor union_descriptor;
+	USB_EndPointDescriptor  hs_notify_descriptor;
+	USB_InterfaceDescriptor data_interface_descritor;
+	USB_EndPointDescriptor  endpoint_descriptor[2];
+//} __attribute__ ((packed)) cdc_confDesc
+} __attribute__ ((packed)) CDC_Descriptor;
+
+//****************************************************************
+
+typedef struct {
+	uint32 dwDTERate;         // baud rate (115200)
+	uint8 bCharFormat;        // stop bits: 0=1, 1=1.5, 2=2
+	uint8 bParityType;        // 0=None, 1=Odd, 2=Even, 3=Mark, 4=Space
+	uint8 bDataBits;          // number of data bits (8)
+} __attribute__ ((packed)) USB_CDC_LineCoding;
+
+//****************************************************************
+//------------------------------------------------------------------------------------------------------------------
+// TX buffer pre CDC (64B packet size, 1KB buffer)
+//------------------------------------------------------------------------------------------------------------------
+
+ //#define USB_TX_BUFFER_SIZE 1024
+/*
+static uint8 usb_tx[USB_TX_BUFFER_SIZE];
+static uint16 usb_tx_in_idx = 0;
+static uint16 usb_tx_out_idx = 0;
+ */
+
+extern volatile uint8 usb_tx_busy;   // 0 = idle, 1 = sending
+
+/* Buffers and indices */
+extern uint8 usb_rx[1024];
+extern volatile uint32 usb_rx_in_idx;
+extern volatile uint32 usb_rx_out_idx;
+
+extern uint8 usb_tx[32768];
+extern volatile uint32 usb_tx_in_idx;
+extern volatile uint32 usb_tx_out_idx;
+
+
+
+extern  uint32 circular_buffer_used(const volatile uint32 in, const volatile uint32 out, const uint32 size);
+extern  uint32 circular_buffer_free(const volatile uint32 in, const volatile uint32 out, const uint32 size);
+  
 //----------------------------------------------------------------------------------------------------------------------------------
 
 typedef struct
@@ -354,8 +449,26 @@ void usb_device_stall_tx_ep(void);
 void usb_device_stall_rx_ep(void);
 
 void usb_write_ep1_data(void *buffer, uint32 length);
+void usb_write_ep2_data(void *buffer, uint32 length);	///treba?
 
+
+//--------------------------------------------------
+//void usb_CDC_receive_callback(uint8 *data, uint32 length);
+void usb_CDC_receive_callback(void);
+//void usb_ch340_send_text(const char *text);
+void set_baud_rate(void);
+
+//void usb_cdc_set_line_coding(uint8 *data);
+void usb_cdc_set_line_coding(void);
+void usb_cdc_get_line_coding(void);
+void usb_cdc_set_control_line_state(uint16 wValue);
+
+//inline uint32 circular_buffer_free(uint16 in_idx, uint16 out_idx, uint16 size);
 //----------------------------------------------------------------------------------------------------------------------------------
+
+char nibble_to_hex(uint8 nibble);
+
+
 
 #endif /* USB_INTERFACE_H */
 

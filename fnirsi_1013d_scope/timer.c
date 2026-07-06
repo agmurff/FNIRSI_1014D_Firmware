@@ -36,6 +36,10 @@ void timer0_irq_handler(void)
   
   //Add one more milli second to the ticks
   timer0ticks++;
+  //for reaload time
+  if (timerRTC) timerRTC--;
+  //for hold timer
+  //if (timerHOLD) timerHOLD--;
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------

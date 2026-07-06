@@ -54,7 +54,7 @@ uint8 tp_config_data[] =
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x24, 0x22,
   0x21, 0x20, 0x1F, 0x1E, 0x1D, 0x1C, 0x18, 0x16, 0x13, 0x12, 0x10, 0x0F, 0x0C, 0x0A, 0x08, 0x06,
   0x04, 0x02, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x01, 
+  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x01
 };
 #endif
 #endif
@@ -105,7 +105,11 @@ void tp_i2c_setup(void)
 
   //Start communication by sending 2 to the command register
   command = 2;
-  tp_i2c_send_data(TP_CMD_REG, &command, 1);
+  tp_i2c_send_data(TP_DEVICE_ADDR, TP_CMD_REG, &command, 1);
+  
+  //Wait for ~100mS
+  tp_delay(200000);   //add 29.10.2025 for TP 1024x600
+
 
 #ifdef USE_TP_CONFIG
   //Clear the checksum before calculating it
@@ -124,10 +128,10 @@ void tp_i2c_setup(void)
   tp_config_data[184] = checksum;
   
   //Send the configuration data
-  tp_i2c_send_data(TP_CFG_VERSION_REG, tp_config_data, sizeof(tp_config_data));
+  tp_i2c_send_data(TP_DEVICE_ADDR, TP_CFG_VERSION_REG, tp_config_data, sizeof(tp_config_data));
 #else
   //Read the touch panel configuration to calculate resolution scalers
-  tp_i2c_read_data(TP_CFG_VERSION_REG, tp_config_data, sizeof(tp_config_data));
+  tp_i2c_read_data(TP_DEVICE_ADDR, TP_CFG_VERSION_REG, tp_config_data, sizeof(tp_config_data));
   
   //Get maximum x and y value from configuration
   xmax = tp_config_data[1] | (tp_config_data[2] << 8);
@@ -157,7 +161,7 @@ void tp_i2c_setup(void)
 
   //Start scanning by sending 0 to the command register
   command = 0;
-  tp_i2c_send_data(TP_CMD_REG, &command, 1);
+  tp_i2c_send_data(TP_DEVICE_ADDR, TP_CMD_REG, &command, 1);
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -180,14 +184,14 @@ void tp_i2c_read_status(void)
   uint8  data[4];
 
   //Read the status of the touch panel
-  tp_i2c_read_data(TP_STATUS_REG, &status, 1);
+  tp_i2c_read_data(TP_DEVICE_ADDR, TP_STATUS_REG, &status, 1);
   
   //Check if there is touch
   if(status & 0x80)
   {
     //Clear the status
     data[0] = 0;
-    tp_i2c_send_data(TP_STATUS_REG, data, 1);
+    tp_i2c_send_data(TP_DEVICE_ADDR, TP_STATUS_REG, data, 1);
     
     status &= 0x0F;
     
@@ -195,7 +199,7 @@ void tp_i2c_read_status(void)
     if(status == 1)
     {
       //Get the touch point data
-      tp_i2c_read_data(TP_COORD1_REG, data, 4);
+      tp_i2c_read_data(TP_DEVICE_ADDR, TP_COORD1_REG, data, 4);
 
       //Store the result in the global coordinate variables
       xtouch = data[0] | (data[1] << 8);
@@ -239,16 +243,16 @@ void tp_i2c_read_status(void)
 
 //----------------------------------------------------------------------------------------------------------------------------------
 
-void tp_i2c_send_data(uint16 reg_addr, uint8 *buffer, uint32 size)
+void tp_i2c_send_data(uint8 adr_dev, uint16 reg_addr, uint8 *buffer, uint32 size)
 {
   //Start a communication sequence
   tp_i2c_send_start();
   
   //Send the device address for writing
-  tp_i2c_send_byte(TP_DEVICE_ADDR_WRITE);
+  tp_i2c_send_byte(adr_dev);
 
   //Send the register address high byte first
-  tp_i2c_send_byte(reg_addr >> 8);
+  if (adr_dev==0x28) tp_i2c_send_byte(reg_addr >> 8); //address TP send 2x8bit
 
   //Send the low byte second
   tp_i2c_send_byte(reg_addr);
@@ -272,16 +276,16 @@ void tp_i2c_send_data(uint16 reg_addr, uint8 *buffer, uint32 size)
 
 //----------------------------------------------------------------------------------------------------------------------------------
 
-void tp_i2c_read_data(uint16 reg_addr, uint8 *buffer, uint32 size)
+void tp_i2c_read_data(uint8 adr_dev, uint16 reg_addr, uint8 *buffer, uint32 size)
 {
   //Start a communication sequence
   tp_i2c_send_start();
 
   //Send the device address for writing
-  tp_i2c_send_byte(TP_DEVICE_ADDR_WRITE);
+  tp_i2c_send_byte(adr_dev);
 
   //Send the register address high byte first
-  tp_i2c_send_byte(reg_addr >> 8);
+  if (adr_dev==0x28) tp_i2c_send_byte(reg_addr >> 8); //address TP send 2x8bit
 
   //Send the low byte second
   tp_i2c_send_byte(reg_addr);
@@ -290,7 +294,7 @@ void tp_i2c_read_data(uint16 reg_addr, uint8 *buffer, uint32 size)
   tp_i2c_send_start();
   
   //Send the device address for writing
-  tp_i2c_send_byte(TP_DEVICE_ADDR_READ);
+  tp_i2c_send_byte(adr_dev|0x1);//tp_i2c_send_byte(TP_DEVICE_ADDR_READ);
   
   //Read all the requested bytes
   while(size)

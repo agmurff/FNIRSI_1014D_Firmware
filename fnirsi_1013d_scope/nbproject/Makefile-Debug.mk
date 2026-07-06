@@ -35,7 +35,10 @@ OBJECTDIR=${CND_BUILDDIR}/${CND_CONF}/${CND_PLATFORM}
 
 # Object Files
 OBJECTFILES= \
+	${OBJECTDIR}/DS3231.o \
+	${OBJECTDIR}/PC_interface.o \
 	${OBJECTDIR}/ccu_control.o \
+	${OBJECTDIR}/cdc_class.o \
 	${OBJECTDIR}/diskio.o \
 	${OBJECTDIR}/display_control.o \
 	${OBJECTDIR}/display_lib.o \
@@ -48,6 +51,7 @@ OBJECTFILES= \
 	${OBJECTDIR}/font_4.o \
 	${OBJECTDIR}/font_5.o \
 	${OBJECTDIR}/fpga_control.o \
+	${OBJECTDIR}/generator.o \
 	${OBJECTDIR}/icons.o \
 	${OBJECTDIR}/interrupt.o \
 	${OBJECTDIR}/mass_storage_class.o \
@@ -55,22 +59,24 @@ OBJECTFILES= \
 	${OBJECTDIR}/memcpy.o \
 	${OBJECTDIR}/memmove.o \
 	${OBJECTDIR}/memset.o \
+	${OBJECTDIR}/menu.o \
 	${OBJECTDIR}/power_and_battery.o \
+	${OBJECTDIR}/ref_and_math.o \
 	${OBJECTDIR}/scope_functions.o \
 	${OBJECTDIR}/sd_card_interface.o \
 	${OBJECTDIR}/sin_cos_math.o \
 	${OBJECTDIR}/spi_control.o \
 	${OBJECTDIR}/start.o \
 	${OBJECTDIR}/statemachine.o \
+	${OBJECTDIR}/test.o \
 	${OBJECTDIR}/timer.o \
-	${OBJECTDIR}/touchpanel_disable.o \
-	${OBJECTDIR}/port_a.o \
+	${OBJECTDIR}/touchpanel.o \
 	${OBJECTDIR}/usb_interface.o \
 	${OBJECTDIR}/variables.o
 
 
 # C Compiler Flags
-CFLAGS=-Wall -Wno-write-strings -Wno-char-subscripts -fno-stack-protector -DNO_STDLIB=1 -mcpu='arm926ej-s' -Og -g -mfloat-abi=soft
+CFLAGS=-Wall -Wno-write-strings -Wno-char-subscripts -fno-stack-protector -DNO_STDLIB=1 -mcpu='arm926ej-s' -O3 -mfloat-abi=soft
 
 # CC Compiler Flags
 CCFLAGS=
@@ -93,10 +99,25 @@ ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/fnirsi_1013d_scope.elf: ${OBJECTFILES
 	${MKDIR} -p ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}
 	arm-none-eabi-gcc -o ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/fnirsi_1013d_scope.elf ${OBJECTFILES} ${LDLIBSOPTIONS} -T./fnirsi_1013d.ld -nostdlib -lgcc
 
+${OBJECTDIR}/DS3231.o: DS3231.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/DS3231.o DS3231.c
+
+${OBJECTDIR}/PC_interface.o: PC_interface.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/PC_interface.o PC_interface.c
+
 ${OBJECTDIR}/ccu_control.o: ccu_control.c
 	${MKDIR} -p ${OBJECTDIR}
 	${RM} "$@.d"
 	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/ccu_control.o ccu_control.c
+
+${OBJECTDIR}/cdc_class.o: cdc_class.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/cdc_class.o cdc_class.c
 
 ${OBJECTDIR}/diskio.o: diskio.c
 	${MKDIR} -p ${OBJECTDIR}
@@ -158,6 +179,11 @@ ${OBJECTDIR}/fpga_control.o: fpga_control.c
 	${RM} "$@.d"
 	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/fpga_control.o fpga_control.c
 
+${OBJECTDIR}/generator.o: generator.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/generator.o generator.c
+
 ${OBJECTDIR}/icons.o: icons.c
 	${MKDIR} -p ${OBJECTDIR}
 	${RM} "$@.d"
@@ -189,10 +215,20 @@ ${OBJECTDIR}/memset.o: memset.s
 	${MKDIR} -p ${OBJECTDIR}
 	$(AS) $(ASFLAGS) -g -o ${OBJECTDIR}/memset.o memset.s
 
+${OBJECTDIR}/menu.o: menu.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/menu.o menu.c
+
 ${OBJECTDIR}/power_and_battery.o: power_and_battery.c
 	${MKDIR} -p ${OBJECTDIR}
 	${RM} "$@.d"
 	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/power_and_battery.o power_and_battery.c
+
+${OBJECTDIR}/ref_and_math.o: ref_and_math.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/ref_and_math.o ref_and_math.c
 
 ${OBJECTDIR}/scope_functions.o: scope_functions.c
 	${MKDIR} -p ${OBJECTDIR}
@@ -223,20 +259,20 @@ ${OBJECTDIR}/statemachine.o: statemachine.c
 	${RM} "$@.d"
 	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/statemachine.o statemachine.c
 
+${OBJECTDIR}/test.o: test.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/test.o test.c
+
 ${OBJECTDIR}/timer.o: timer.c
 	${MKDIR} -p ${OBJECTDIR}
 	${RM} "$@.d"
 	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/timer.o timer.c
 
-${OBJECTDIR}/touchpanel_disable.o: touchpanel_disable.c
+${OBJECTDIR}/touchpanel.o: touchpanel.c
 	${MKDIR} -p ${OBJECTDIR}
 	${RM} "$@.d"
-	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/touchpanel_disable.o touchpanel_disable.c
-
-${OBJECTDIR}/port_a.o: port_a.c
-	${MKDIR} -p ${OBJECTDIR}
-	${RM} "$@.d"
-	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/port_a.o port_a.c
+	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/touchpanel.o touchpanel.c
 
 ${OBJECTDIR}/usb_interface.o: usb_interface.c
 	${MKDIR} -p ${OBJECTDIR}

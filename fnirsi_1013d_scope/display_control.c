@@ -54,8 +54,13 @@ void sys_init_display(uint16 xsize, uint16 ysize, uint16 *address)
   uint32  index;
   
   //Setup the used port D pins for LCD
-  *PORTD_CFG0_REG = 0x22222227;   //PD00 is not used for the display
-  *PORTD_CFG1_REG = 0x22272222;   //PD12 is not used for the display
+  //*PORTD_CFG0_REG = 0x22222220;
+  //*PORTD_CFG1_REG = 0x22202222;
+
+  //*PORTD_CFG0_REG = 0x22222223;   //PD00 is not used for the display-7, PD0- TWI0_SDA-3
+  //*PORTD_CFG1_REG = 0x22232222;   //PD12 is not used for the display-7, PD12-TWI0_SCK-3
+  *PORTD_CFG0_REG = 0x22222227;   //PD00 is not used for the display-7, PD0- TWI0_SDA-3
+  *PORTD_CFG1_REG = 0x22272222;   //PD12 is not used for the display-7, PD12-TWI0_SCK-3
   *PORTD_CFG2_REG = 0x00222222;   //Only 22 pins for port D
    
   //Clear the display memory (Set in bytes so twice the number of pixels)
@@ -214,7 +219,10 @@ void sys_init_display(uint16 xsize, uint16 ysize, uint16 *address)
   *TCON0_IO_CTRL0 = 0x17000000;
   
   //
-  *TCON0_IO_CTRL1 = 0;
+  //*TCON0_IO_CTRL1 = 0;
+  // TCON – only RGB565
+  // LCD – selectively disabled D0, D1, D2, D8, D9, D16, D17, D18 pins
+  *TCON0_IO_CTRL1 = 0x0F070307;
   
   //Enable the LCD timing control module
   *TCON_CTRL |= TCON_CTRL_MODULE_EN;

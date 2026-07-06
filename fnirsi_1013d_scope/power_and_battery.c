@@ -1,5 +1,7 @@
 //--------------------------------------------------------------------------------------
 
+#include "menu.h"
+#include "test.h"
 #include "power_and_battery.h"
 #include "fpga_control.h"        //Port E functionality is defined here
 #include "interrupt.h"
@@ -21,7 +23,10 @@ void battery_check_init(void)
 
 void battery_check_status(void)
 {
-  int32 chargelevel;
+  register int32 chargelevel=0;
+  int32 prev_chargelevel; 
+  
+  prev_chargelevel = scopesettings.batterychargelevel;
   
   //Get the status of the battery charging indicator pin
   //A low level on the pin means charging
@@ -29,7 +34,7 @@ void battery_check_status(void)
   
   //Get data from the key adc, which is current battery level
   chargelevel = *KEY_ADC_DATA_REG & 0x3F;
-
+  
   //Compensate for higher brightness settings. When brighter the current is higher and the internal resistance of the battery lowers the voltage while the charge is still there
   chargelevel = chargelevel + ((scopesettings.screenbrightness * chargelevel) / 1000);
 
@@ -38,6 +43,7 @@ void battery_check_status(void)
   {
     //When charging the measured voltage is ~0,21875V higher
     chargelevel -= 7;
+    prev_chargelevel = 20;
   }
 
   //The original code has some lowest over time detection based on time base setting which is not done here
@@ -59,7 +65,7 @@ void battery_check_status(void)
   }
   
   //Copy it to the global variable
-  scopesettings.batterychargelevel = chargelevel;
+  if (chargelevel < prev_chargelevel) scopesettings.batterychargelevel = chargelevel;
   
   //Display the level on the screen
   scope_battery_status();

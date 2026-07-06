@@ -55,6 +55,7 @@ void display_set_fg_y_gradient(uint16 *buffer, uint32 ystart, uint32 yend, uint3
 
 //----------------------------------------------------------------------------------------------------------------------------------
 
+void display_draw_pixel(uint32 x, uint32 y);
 void display_draw_line(uint32 xstart, uint32 ystart, uint32 xend, uint32 yend);
 void display_draw_horz_line(uint32 ypos, uint32 xstart, uint32 xend);
 void display_draw_vert_line(uint32 xpos, uint32 ystart, uint32 yend);
@@ -74,6 +75,7 @@ void display_fill_rounded_rect(uint32 xpos, uint32 ypos, uint32 width, uint32 he
 //----------------------------------------------------------------------------------------------------------------------------------
 
 void display_slide_top_rect_onto_screen(uint32 xpos, uint32 ypos, uint32 width, uint32 height, uint32 speed);
+void display_slide_bottom_rect_onto_screen(uint32 xpos, uint32 ypos, uint32 width, uint32 height, uint32 speed);
 void display_slide_left_rect_onto_screen(uint32 xpos, uint32 ypos, uint32 width, uint32 height, uint32 speed);
 void display_slide_right_rect_onto_screen(uint32 xpos, uint32 ypos, uint32 width, uint32 height, uint32 speed);
 
@@ -89,7 +91,7 @@ void display_copy_icon_fg_color(const uint8 *icon, uint32 xpos, uint32 ypos, uin
 void display_copy_icon_fg_color_y_gradient(const uint8 *icon, uint32 xpos, uint32 ypos, uint32 width, uint32 height);
 
 //----------------------------------------------------------------------------------------------------------------------------------
-
+void display_left_REF_pointer(uint32 xpos, uint32 ypos, int8 id);
 void display_left_pointer(uint32 xpos, uint32 ypos, int8 id);
 void display_right_pointer(uint32 xpos, uint32 ypos, int8 id);
 void display_top_pointer(uint32 xpos, uint32 ypos, int8 id);

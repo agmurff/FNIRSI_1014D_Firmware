@@ -24,8 +24,10 @@
 
 //----------------------------------------------------------------------------------------------------------------------------------
 
-#define TP_DEVICE_ADDR_WRITE    0x28
-#define TP_DEVICE_ADDR_READ     0x29
+//#define TP_DEVICE_ADDR_WRITE    0x28
+//#define TP_DEVICE_ADDR_READ     0x29
+
+#define TP_DEVICE_ADDR    0x28
 
 //----------------------------------------------------------------------------------------------------------------------------------
 
@@ -40,8 +42,8 @@ void tp_i2c_read_status(void);
 
 void tp_i2c_wait_for_touch_release(void);
 
-void tp_i2c_send_data(uint16 reg_addr, uint8 *buffer, uint32 size);
-void tp_i2c_read_data(uint16 reg_addr, uint8 *buffer, uint32 size);
+void tp_i2c_send_data(uint8 adr_dev, uint16 reg_addr, uint8 *buffer, uint32 size);
+void tp_i2c_read_data(uint8 adr_dev, uint16 reg_addr, uint8 *buffer, uint32 size);
 
 void tp_i2c_send_start(void);
 void tp_i2c_send_stop(void);

@@ -194,8 +194,10 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
 //Input:
 //
 //----------------------------------------------------------------------------------------------------------------------------------
+/*
 DWORD get_fattime (void)
 {
   //Some date and time value
-  return(1349957149);
+  //return(1349957149);   //Ne 22. marec 2020, 23:48:58    
 }
+*/

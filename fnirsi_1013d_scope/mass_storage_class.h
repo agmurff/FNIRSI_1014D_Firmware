@@ -21,7 +21,7 @@ extern const Mass_Storage_Descriptor Mass_Storage_ConfDesc;
 
 extern const uint8 StringLangID[4];
 extern const uint8 StringVendor[62];
-extern const uint8 StringProduct[38];
+extern const uint8 StringProduct[50];
 extern const uint8 StringSerial[30];
 extern const uint8 StringInterface[30];
 extern const uint8 scsi_inquiry_string[36];

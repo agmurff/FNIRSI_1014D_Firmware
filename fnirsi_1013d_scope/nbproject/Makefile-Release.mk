@@ -35,7 +35,10 @@ OBJECTDIR=${CND_BUILDDIR}/${CND_CONF}/${CND_PLATFORM}
 
 # Object Files
 OBJECTFILES= \
+	${OBJECTDIR}/DS3231.o \
+	${OBJECTDIR}/PC_interface.o \
 	${OBJECTDIR}/ccu_control.o \
+	${OBJECTDIR}/cdc_class.o \
 	${OBJECTDIR}/diskio.o \
 	${OBJECTDIR}/display_control.o \
 	${OBJECTDIR}/display_lib.o \
@@ -48,6 +51,7 @@ OBJECTFILES= \
 	${OBJECTDIR}/font_4.o \
 	${OBJECTDIR}/font_5.o \
 	${OBJECTDIR}/fpga_control.o \
+	${OBJECTDIR}/generator.o \
 	${OBJECTDIR}/icons.o \
 	${OBJECTDIR}/interrupt.o \
 	${OBJECTDIR}/mass_storage_class.o \
@@ -55,13 +59,16 @@ OBJECTFILES= \
 	${OBJECTDIR}/memcpy.o \
 	${OBJECTDIR}/memmove.o \
 	${OBJECTDIR}/memset.o \
+	${OBJECTDIR}/menu.o \
 	${OBJECTDIR}/power_and_battery.o \
+	${OBJECTDIR}/ref_and_math.o \
 	${OBJECTDIR}/scope_functions.o \
 	${OBJECTDIR}/sd_card_interface.o \
 	${OBJECTDIR}/sin_cos_math.o \
 	${OBJECTDIR}/spi_control.o \
 	${OBJECTDIR}/start.o \
 	${OBJECTDIR}/statemachine.o \
+	${OBJECTDIR}/test.o \
 	${OBJECTDIR}/timer.o \
 	${OBJECTDIR}/touchpanel.o \
 	${OBJECTDIR}/usb_interface.o \
@@ -92,10 +99,25 @@ ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/fnirsi_1013d_scope: ${OBJECTFILES}
 	${MKDIR} -p ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}
 	arm-none-eabi-gcc -o ${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/fnirsi_1013d_scope ${OBJECTFILES} ${LDLIBSOPTIONS} -T./stm32f103-64k.ld -nostdlib
 
+${OBJECTDIR}/DS3231.o: DS3231.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -O2 -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/DS3231.o DS3231.c
+
+${OBJECTDIR}/PC_interface.o: PC_interface.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -O2 -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/PC_interface.o PC_interface.c
+
 ${OBJECTDIR}/ccu_control.o: ccu_control.c
 	${MKDIR} -p ${OBJECTDIR}
 	${RM} "$@.d"
 	$(COMPILE.c) -O2 -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/ccu_control.o ccu_control.c
+
+${OBJECTDIR}/cdc_class.o: cdc_class.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -O2 -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/cdc_class.o cdc_class.c
 
 ${OBJECTDIR}/diskio.o: diskio.c
 	${MKDIR} -p ${OBJECTDIR}
@@ -157,6 +179,11 @@ ${OBJECTDIR}/fpga_control.o: fpga_control.c
 	${RM} "$@.d"
 	$(COMPILE.c) -O2 -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/fpga_control.o fpga_control.c
 
+${OBJECTDIR}/generator.o: generator.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -O2 -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/generator.o generator.c
+
 ${OBJECTDIR}/icons.o: icons.c
 	${MKDIR} -p ${OBJECTDIR}
 	${RM} "$@.d"
@@ -188,10 +215,20 @@ ${OBJECTDIR}/memset.o: memset.s
 	${MKDIR} -p ${OBJECTDIR}
 	$(AS) $(ASFLAGS) -o ${OBJECTDIR}/memset.o memset.s
 
+${OBJECTDIR}/menu.o: menu.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -O2 -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/menu.o menu.c
+
 ${OBJECTDIR}/power_and_battery.o: power_and_battery.c
 	${MKDIR} -p ${OBJECTDIR}
 	${RM} "$@.d"
 	$(COMPILE.c) -O2 -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/power_and_battery.o power_and_battery.c
+
+${OBJECTDIR}/ref_and_math.o: ref_and_math.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -O2 -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/ref_and_math.o ref_and_math.c
 
 ${OBJECTDIR}/scope_functions.o: scope_functions.c
 	${MKDIR} -p ${OBJECTDIR}
@@ -221,6 +258,11 @@ ${OBJECTDIR}/statemachine.o: statemachine.c
 	${MKDIR} -p ${OBJECTDIR}
 	${RM} "$@.d"
 	$(COMPILE.c) -O2 -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/statemachine.o statemachine.c
+
+${OBJECTDIR}/test.o: test.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -O2 -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/test.o test.c
 
 ${OBJECTDIR}/timer.o: timer.c
 	${MKDIR} -p ${OBJECTDIR}

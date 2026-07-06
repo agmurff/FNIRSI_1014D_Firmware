@@ -33,7 +33,7 @@ const Mass_Storage_Descriptor Mass_Storage_ConfDesc =
     0x01, //NumInterfaces
     0x01, //Configuration Value
     0x00, //Configuration Description String Index
-    0xC0, //Self Powered, no remote wakeup
+    0xC0, //Self Powered, no remote wake up
     0x32 //Maximum power consumption 500 mA
   },
   {
@@ -76,41 +76,45 @@ const uint8 StringLangID[4] =
   0x04 // LangID = 0x0409: U.S. English
 };
 
-const uint8 StringVendor[62] =
-{
-  0x3E, // Size of Vendor string
-  0x03, // bDescriptorType
-  0x48, 0x00, 0x65, 0x00, 0x72, 0x00, 0x6F, 0x00, 0x4A, 0x00, 0x65, 0x00, 0x20, 0x00, 0x53, 0x00,
-  0x63, 0x00, 0x61, 0x00, 0x6E, 0x00, 0x6E, 0x00, 0x65, 0x00, 0x72, 0x00, 0x73, 0x00, 0x20, 0x00,
-  0x44, 0x00, 0x72, 0x00, 0x69, 0x00, 0x76, 0x00, 0x65, 0x00, 0x73, 0x00, 0x20, 0x00, 0x2D, 0x00,
-  0x20, 0x00, 0x48, 0x00, 0x32, 0x00, 0x37, 0x00, 0x35, 0x00, 0x30, 0x00, 
+/* String descriptors in readable UTF-16 format */
+
+const uint8 StringVendor[62] = {
+    0x3E, 0x03, // length = 62 bytes, type = string descriptor
+    'H',0,'e',0,'r',0,'o',0,'J',0,'e',0,' ',0,
+    'S',0,'c',0,'a',0,'n',0,'n',0,'e',0,'r',0,
+    's',0,' ',0,'D',0,'r',0,'i',0,'v',0,'e',0,
+    's',0,' ',0,'-',0,' ',0,'H',0,'2',0,'7',0,
+    '5',0,'0',0
 };
 
+const uint8 StringProduct[50] = {
+    0x32, 0x03, // length = 38 bytes, type = string descriptor // 50 bajtov = 2 + (24 znakov * 2)
+    'F',0,'n',0,'i',0,'r',0,'s',0,'i',0,' ',0,
+    '1',0,'0',0,'1',0,'3',0,'D',0,' ',0,
+    'U',0,'s',0,'b',0,' ',0,'D',0,'e',0,'v',0,
+    'i',0,'c',0,'e',0,'s',0
+};
+/*
+ const uint8 StringProduct[38] = {
+    0x26, 0x03, // length = 38 bytes, type = string descriptor
+    'H',0,'2',0,'7',0,'5',0,'0',0,' ',0,' ',0,
+    'U',0,'s',0,'b',0,' ',0,'D',0,'e',0,'v',0,
+    'i',0,'c',0,'e',0,'s',0
+};
+ */
 
-const uint8 StringProduct[38] =
-{
-  0x26, // bLength
-  0x03, // bDescriptorType
-  0x48, 0x00, 0x32, 0x00, 0x37, 0x00, 0x35, 0x00, 0x30, 0x00, 0x20, 0x00, 0x20, 0x00,
-  0x55, 0x00, 0x73, 0x00, 0x62, 0x00, 0x20, 0x00, 0x44, 0x00, 0x65, 0x00, 0x76, 0x00, 0x69, 0x00,
-  0x63, 0x00, 0x65, 0x00, 0x73, 0x00, 
+const uint8 StringSerial[30] = {
+    0x1E, 0x03, // length = 30 bytes, type = string descriptor
+    'C',0,'D',0,'C',0,' ',0,'A',0,'C',0,'M',0,
+    ' ',0,'c',0,'o',0,'n',0,'f',0,'i',0,'g',0
 };
 
-const uint8 StringSerial[30] =
-{
-  0x1E, // bLength
-  0x03, // bDescriptorType
-  0x43, 0x00, 0x44, 0x00, 0x43, 0x00, 0x20, 0x00, 0x41, 0x00, 0x43, 0x00, 0x4D, 0x00, 0x20, 0x00, 
-  0x63, 0x00, 0x6F, 0x00, 0x6E, 0x00, 0x66, 0x00, 0x69, 0x00, 0x67, 0x00, 
+const uint8 StringInterface[30] = {
+    0x1E, 0x03, // length = 30 bytes, type = string descriptor
+    'C',0,'D',0,'C',0,' ',0,'A',0,'C',0,'M',0,
+    ' ',0,'c',0,'o',0,'n',0,'f',0,'i',0,'g',0
 };
 
-const uint8 StringInterface[30] =
-{
-  0x1E, // bLength
-  0x03, // bDescriptorType
-  0x43, 0x00, 0x44, 0x00, 0x43, 0x00, 0x20, 0x00, 0x41, 0x00, 0x43, 0x00, 0x4D, 0x00, 0x20, 0x00, 
-  0x63, 0x00, 0x6F, 0x00, 0x6E, 0x00, 0x66, 0x00, 0x69, 0x00, 0x67, 0x00, 
-};
 
 //----------------------------------------------------------------------------------------------------------------------------------
 
@@ -146,6 +150,8 @@ volatile uint32 scsi_available_blocks;
 uint8 scsi_capacity[8];
 
 volatile uint32 msc_state = MSC_WAIT_COMMAND;
+
+uint8 mounted_to_PC;    //flag DSO (MSC) is connected and mounted to PC
 
 MSC_Command_Wrapper scsi_cbw;
 MSC_Status_Wrapper  scsi_csw;
@@ -278,7 +284,8 @@ void usb_mass_storage_out_ep_callback(void *fifo, int length)
               break;
 
             case SCSI_CMD_PREVENT_ALLOW_MEDIUM_REMOVAL:
-              //Use this command to block the return to scope mode if the host says so!!!
+            //Use this command to block the return to scope mode if the host says so!!!
+            if(scsi_cbw.command[4] & 0x01) mounted_to_PC=1; else mounted_to_PC=0;
 
             //Ignore these commands for now
             case SCSI_CMD_TEST_UNIT_READY:
@@ -315,6 +322,15 @@ void usb_mass_storage_out_ep_callback(void *fifo, int length)
 
               //Switch to status state (No more data to send)
               msc_state = MSC_SEND_STATUS;
+              break;
+              
+            case SCSI_CMD_READ_FORMAT_CAPACITY: 
+             {
+                     usb_write_ep1_data((void *)scsi_capacity, sizeof(scsi_capacity));
+
+                //Switch to status state (No more data to send)
+                msc_state = MSC_SEND_STATUS;
+              }
               break;
 
             case SCSI_CMD_READ_10:

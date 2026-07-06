@@ -62,6 +62,9 @@ void   fpga_check_ready(void);
 
 void   fpga_enable_system(void);
 
+void   fpga_on_off_generator(void);
+void   fpga_set_generator_freq(uint32 freq_hz);
+void   fpga_set_generator_duty(uint8 duty);
 
 void   fpga_set_channel_enable(PCHANNELSETTINGS settings);
 void   fpga_set_channel_coupling(PCHANNELSETTINGS settings);
@@ -69,7 +72,9 @@ void   fpga_set_channel_voltperdiv(PCHANNELSETTINGS settings);
 void   fpga_set_channel_offset(PCHANNELSETTINGS settings);
 
 void   fpga_set_sample_rate(uint32 samplerate);
-void   fpga_set_time_base(uint32 timebase);
+void   fpga_set_time_base(uint32 timebase);     //void   fpga_set_short_timebase(void);
+
+void   fpga_set_long_timebase(uint32 timebase);            //For long time base
 
 void   fpga_set_trigger_channel(void);
 void   fpga_set_trigger_edge(void);
@@ -78,17 +83,17 @@ void   fpga_set_trigger_level(void);
 void   fpga_set_trigger_mode(void);
 
 void   fpga_do_conversion(void);
+uint8  fpga_done_conversion(void);
 
 uint16 fpga_prepare_for_transfer(void);
 
 void   fpga_read_sample_data(PCHANNELSETTINGS settings, uint32 triggerpoint);
 void   fpga_read_adc_data(PCHANNELSETTINGS settings);
 
+uint16 fpga_average_trace_data(PCHANNELSETTINGS settings);  //For long time base
+uint16 fpga_average_trace_data_long(PCHANNELSETTINGS settings);
 
-
-void   fpga_set_battery_level(void);
-
-
+//void   fpga_set_battery_level(void);
 
 void   fpga_delay(uint32 usec);
 

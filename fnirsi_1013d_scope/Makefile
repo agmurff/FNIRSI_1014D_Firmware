@@ -49,6 +49,9 @@ MKDIR=mkdir
 CP=cp
 CCADMIN=CCadmin
 
+# Extract version string once for all targets
+#VERSION_STRING = $(shell grep 'VERSION_STRING' variables.h | sed -E 's/.*"([^"]+)".*/\1/')
+VERSION_STRING := $(shell grep -E '^#define[[:space:]]+VERSION_STRING[[:space:]]+"[^"]+"' variables.h | sed -E 's/.*"([^"]+)".*/\1/')
 
 # build
 build: .build-post
@@ -56,15 +59,63 @@ build: .build-post
 .build-pre:
 # Add your pre 'build' code here...
 
+.build-pre:
+	@echo "Generujem build_time.h s aktuálnym dátumom..."
+	@echo "#ifndef BUILD_TIME_H" > build_time.h
+	@echo "#define BUILD_TIME_H" >> build_time.h
+	@echo "#define COMPILE_YEAR $$(date +%y)" >> build_time.h
+	@echo "#define COMPILE_MONTH $$(date +%-m)" >> build_time.h
+	@echo "#define COMPILE_DAY $$(date +%-d)" >> build_time.h
+	@echo "#define COMPILE_HOUR $$(date +%-H)" >> build_time.h
+	@echo "#define COMPILE_MIN $$(date +%-M)" >> build_time.h
+	@echo "#define COMPILE_SEC $$(date +%-S)" >> build_time.h
+	@echo "#endif" >> build_time.h
+
 .build-post: .build-impl
 # Add your post 'build' code here...
 	arm-none-eabi-objcopy -O binary dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.elf dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin
 	
+#	chmod a+rwx dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin
+ 
+ 
 # Fix the BROM header
 	./mksunxi dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin
+#	
+#	cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin ../../FNIRSI_1013D_Firmware-main/firmware_Atlan_Peco/scope.bin
+# for bootloader files
+
+	@echo ">>> Removing old updater versions..."
+	rm -f "../../FNIRSI_1013D_Firmware-main/firmware_Atlan_Peco/scope v"*.bin
+	#- rm -f "/media/dk/6741-6DAB/firmware Atlan & PECO/scope v"*.bin
+	- rm -f "/media/dk/5229-1580/firmware Atlan & PECO/scope v"*.bin
+	- rm -f "/media/dk/524A-7973/firmware Atlan & PECO/scope v"*.bin
+	- rm -f "/media/dk/B80A-91C3/firmware Atlan & PECO/scope v"*.bin
+	
+# Skopírovať výsledný binárny súbor s pridanou verziou v názve
+	@echo ">>> VERSION DETECTED: $(VERSION_STRING)"
+	cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin \
+		"../../FNIRSI_1013D_Firmware-main/firmware_Atlan_Peco/scope $(VERSION_STRING).bin"
+		
+	#- cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin "/media/dk/6741-6DAB/firmware Atlan & PECO/scope $(VERSION_STRING).bin"
+	- cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin "/media/dk/5229-1580/firmware Atlan & PECO/scope $(VERSION_STRING).bin"
+	- cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin "/media/dk/524A-7973/firmware Atlan & PECO/scope $(VERSION_STRING).bin"
+	- cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin "/media/dk/B80A-91C3/firmware Atlan & PECO/scope $(VERSION_STRING).bin"
+	
+	@echo ">>> Created: scope $(VERSION_STRING).bin"
+
+	#cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin ../../FNIRSI_1013D_Firmware-main/firmware_Atlan_Peco/scope.bin
+	#cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin "/media/dk/6741-6DAB/firmware Atlan & PECO/scope.bin"
+
+#	chmod a+rwx dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin
+#	chmod a+rwx dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin
+
 
 # SD card package
-	./flashfilepacker -o dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin -i dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin -l 0x9800
+	./flashfilepacker -o dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin -i dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin -l 0x5BC00
+# 	./flashfilepacker -o dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin -i dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin -l 0x8000 0x5BC00
+
+# Auto load firmware with FEL
+	sudo ./dist/Debug/GNU_ARM-Linux/sunxi-fel -p write 0x7FFFFFE0 dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin exe 0x80000000
 
 
 
@@ -126,7 +177,6 @@ help: .help-post
 
 .help-post: .help-impl
 # Add your post 'help' code here...
-
 
 
 # include project implementation makefile
