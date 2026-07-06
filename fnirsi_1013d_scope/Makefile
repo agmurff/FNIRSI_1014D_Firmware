@@ -93,13 +93,13 @@ build: .build-post
 	
 # Skopírovať výsledný binárny súbor s pridanou verziou v názve
 	@echo ">>> VERSION DETECTED: $(VERSION_STRING)"
-	cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin \
-		"../../FNIRSI_1013D_Firmware-main/firmware_Atlan_Peco/scope $(VERSION_STRING).bin"
+#	cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin \
+#		"../../FNIRSI_1013D_Firmware-main/firmware_Atlan_Peco/scope $(VERSION_STRING).bin"
 		
 	#- cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin "/media/dk/6741-6DAB/firmware Atlan & PECO/scope $(VERSION_STRING).bin"
-	- cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin "/media/dk/5229-1580/firmware Atlan & PECO/scope $(VERSION_STRING).bin"
-	- cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin "/media/dk/524A-7973/firmware Atlan & PECO/scope $(VERSION_STRING).bin"
-	- cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin "/media/dk/B80A-91C3/firmware Atlan & PECO/scope $(VERSION_STRING).bin"
+#	- cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin "/media/dk/5229-1580/firmware Atlan & PECO/scope $(VERSION_STRING).bin"
+#	- cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin "/media/dk/524A-7973/firmware Atlan & PECO/scope $(VERSION_STRING).bin"
+#	- cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin "/media/dk/B80A-91C3/firmware Atlan & PECO/scope $(VERSION_STRING).bin"
 	
 	@echo ">>> Created: scope $(VERSION_STRING).bin"
 
@@ -115,7 +115,7 @@ build: .build-post
 # 	./flashfilepacker -o dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin -i dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin -l 0x8000 0x5BC00
 
 # Auto load firmware with FEL
-	sudo ./dist/Debug/GNU_ARM-Linux/sunxi-fel -p write 0x7FFFFFE0 dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin exe 0x80000000
+#	sudo ./dist/Debug/GNU_ARM-Linux/sunxi-fel -p write 0x7FFFFFE0 dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin exe 0x80000000
 
 
 

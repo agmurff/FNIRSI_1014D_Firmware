@@ -59,6 +59,7 @@ OBJECTFILES= \
 	${OBJECTDIR}/memcpy.o \
 	${OBJECTDIR}/memmove.o \
 	${OBJECTDIR}/memset.o \
+	${OBJECTDIR}/strlen.o \
 	${OBJECTDIR}/menu.o \
 	${OBJECTDIR}/power_and_battery.o \
 	${OBJECTDIR}/ref_and_math.o \
@@ -76,7 +77,7 @@ OBJECTFILES= \
 
 
 # C Compiler Flags
-CFLAGS=-Wall -Wno-write-strings -Wno-char-subscripts -fno-stack-protector -DNO_STDLIB=1 -mcpu='arm926ej-s' -O3 -mfloat-abi=soft
+CFLAGS=-Wall -Wno-write-strings -Wno-char-subscripts -fno-stack-protector -DNO_STDLIB=1 -mcpu='arm926ej-s' -O3 -mfloat-abi=soft -Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=int-conversion
 
 # CC Compiler Flags
 CCFLAGS=
@@ -214,6 +215,10 @@ ${OBJECTDIR}/memmove.o: memmove.s
 ${OBJECTDIR}/memset.o: memset.s
 	${MKDIR} -p ${OBJECTDIR}
 	$(AS) $(ASFLAGS) -g -o ${OBJECTDIR}/memset.o memset.s
+
+${OBJECTDIR}/strlen.o: strlen.s
+	${MKDIR} -p ${OBJECTDIR}
+	$(AS) $(ASFLAGS) -g -o ${OBJECTDIR}/strlen.o strlen.s
 
 ${OBJECTDIR}/menu.o: menu.c
 	${MKDIR} -p ${OBJECTDIR}
