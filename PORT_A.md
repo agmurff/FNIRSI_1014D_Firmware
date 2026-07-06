@@ -250,8 +250,44 @@ display flashes, most likely because pristine Atlan4 never runs this port's exte
 init (`cg_i2c_setup` → MS5351M, which feeds the FPGA that drives backlight PWM) — to confirm once
 the port is grafted on.
 
-**Next brick — the actual deliverable is not a `make` away.** A *controllable* 1014D build
-requires grafting the port onto this base (`port_a.*` + touch-disable + `main()` hooks:
-`cg_i2c_setup`/`uart1_setup`) and re-targeting the UART key dispatch to Atlan4's action/menu
-functions (Atlan4's `menu.c` flow differs from the old base). That — plus the self-update key
-bindings above — is Phase 3, and it is where the real work now is.
+### Phase 3 graft — DONE (first pass), 2026-07-06
+
+The port is now grafted onto the Atlan4 v1.00o5 base and **both variants build clean** (exit 0,
+0 gcc errors) from one codebase; the 1014D build packs to a bootable `fnirsi_1013d.bin` (730696 B,
+`eGON.EXE` at 0x5BC00). Not yet hardware-tested — this is the "compiles + bootable image" milestone.
+
+Delta (small and surgical — Atlan4's C source is otherwise untouched):
+- **`port_a.c` / `port_a.h`** brought in verbatim from the `PORT_A` branch. Pleasant surprise:
+  **all 14 scope/fpga functions and every `scopesettings`/`CHANNELSETTINGS` field the key handler
+  pokes still exist in Atlan4 with matching signatures**, so `uart1_handler` compiled essentially
+  unchanged (only added `#include "menu.h"` to kill implicit-declaration warnings for
+  `scope_setup_usb_screen`/`scope_channel_settings`/`scope_run_stop_text`/
+  `scope_trigger_channel_select`/`scope_acqusition_settings`).
+- **`port_config.h`** — single build-variant switch. `PORT_1014D 1` = bench-key model (default),
+  `0` = original 1013D touch build. All `main()` differences are `#if PORT_1014D` guarded, so the
+  touch build still compiles (verified).
+- **`fnirsi_1013d_scope.c` main()**, guarded by `PORT_1014D`: (a) `cg_i2c_setup()` inserted
+  **before `fpga_init()`** (clock before FPGA — matches the PORT_A author's proven order; also the
+  fix for the display flashing); (b) `tp_i2c_setup()` **skipped** on 1014D — running it would
+  bit-bang GT911 init bytes onto PA0/PA1, which on the 1014D are the Si5351's SDA/SCL, and could
+  corrupt the clock; (c) `uart1_setup()` added just before the main loop; (d) loop calls
+  `uart1_handler()` instead of `touch_handler()`.
+- **`nbproject/Makefile-Debug.mk`** — `port_a.o` added to `OBJECTFILES` + a compile rule.
+- **Deliberately NOT swapped in: the old `touchpanel_disable.c`.** Atlan4's `touchpanel.c` `tp_i2c_*`
+  functions are now **shared with the DS3231 RTC** (`DS3231.c`) and gained a device-address
+  parameter, so the old empty-stub file no longer matches the callers. Atlan4's real `touchpanel.c`
+  stays compiled (RTC needs it); on 1014D the touch *input* path is simply never driven.
+
+**Known limitations of this first pass (not yet addressed):**
+- **Key dispatch is still the old PORT_A subset** (AUTO, MENU→USB screen, CH mag, trigger mode/chan,
+  a few trims/scale/time). It has NOT been re-targeted to Atlan4's richer `menu.c` action flow, and
+  trigger-level FPGA writes are still commented out. Most keys do nothing yet.
+- **No self-update key bindings yet** (FEL config-byte / USB-disk mode). Still touch-only entry.
+- **Fresh-flash calibration prompt** (`calibrationfail=1` from `scope_load_configuration_data` when
+  flash has no saved config) will draw its overlay and can't be dismissed without touch — but it is
+  a non-blocking loop overlay, not a `while(1)`, so the scope still runs underneath.
+- Fast-timebase sawtooth (50 MHz `sample_rate_settings`/`freq_calc_data` recalibration) untouched.
+
+**Next:** flash to the 1014D and confirm (display no longer flashes; keys register); then re-target
+key dispatch to Atlan4 menu/actions and bind FEL + USB-disk self-update to keys (+ power-on key-hold
+recovery gate).

@@ -69,6 +69,7 @@ OBJECTFILES= \
 	${OBJECTDIR}/spi_control.o \
 	${OBJECTDIR}/start.o \
 	${OBJECTDIR}/statemachine.o \
+	${OBJECTDIR}/port_a.o \
 	${OBJECTDIR}/test.o \
 	${OBJECTDIR}/timer.o \
 	${OBJECTDIR}/touchpanel.o \
@@ -273,6 +274,11 @@ ${OBJECTDIR}/timer.o: timer.c
 	${MKDIR} -p ${OBJECTDIR}
 	${RM} "$@.d"
 	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/timer.o timer.c
+
+${OBJECTDIR}/port_a.o: port_a.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/port_a.o port_a.c
 
 ${OBJECTDIR}/touchpanel.o: touchpanel.c
 	${MKDIR} -p ${OBJECTDIR}

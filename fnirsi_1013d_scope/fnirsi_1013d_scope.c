@@ -11,6 +11,8 @@
 #include "display_control.h"
 #include "fpga_control.h"
 #include "touchpanel.h"
+#include "port_config.h"
+#include "port_a.h"
 #include "power_and_battery.h"
 #include "DS3231.h"
 
@@ -68,6 +70,12 @@ int main(void)
   //Initialize SPI for flash (PORT C + SPI0)
   sys_spi_flash_init();
 
+#if PORT_1014D
+  //1014D: program the external Si5351 clock generator (PA0/PA1) BEFORE the FPGA, so the FPGA/ADC
+  //has its sample clock and the FPGA-driven backlight PWM is stable (otherwise the display flashes).
+  cg_i2c_setup();
+#endif
+
   //Initialize FPGA (PORT E)
   fpga_init();
   
@@ -107,7 +115,13 @@ int main(void)
   //load_picture("scope.bmp");
 
   //Setup the touch panel interface
+#if PORT_1014D
+  //1014D has no touch panel; PA0/PA1 are the clock-gen I2C (already set up by cg_i2c_setup()).
+  //Running tp_i2c_setup() here would bit-bang GT911 init bytes onto the Si5351 lines and could
+  //corrupt the clock, so it is deliberately skipped. (touchpanel.c stays compiled for the RTC.)
+#else
   tp_i2c_setup();
+#endif
 
 #ifndef USE_TP_CONFIG
 #ifdef SAVE_TP_CONFIG
@@ -245,7 +259,12 @@ int main(void)
   //while(1);
 
   //scope_open_keyboard_menu();
-  
+
+#if PORT_1014D
+  //1014D: bring up the UART1 key controller (PA2/PA3) for physical-key input.
+  uart1_setup();
+#endif
+
   //Monitor the battery, process and display trace data and handle user input until power is switched off
   while(1)
   {
@@ -358,11 +377,17 @@ int main(void)
     
     
     //--------------------------------------------------------------------------
-    
-    //Handle the touch panel input
+
+    //Handle user input
+#if PORT_1014D
+    //1014D: poll the physical key controller over UART1 and dispatch.
+    uart1_handler();
+#else
+    //1013D: handle the touch panel input
     touch_handler();
-    
-    //--------------------------------------------------------------------------    
+#endif
+
+    //--------------------------------------------------------------------------
     
     //READ and show RTC time
     if (!(timerRTC)&&(onoffRTC))
