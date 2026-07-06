@@ -84,12 +84,12 @@ build: .build-post
 #	cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin ../../FNIRSI_1013D_Firmware-main/firmware_Atlan_Peco/scope.bin
 # for bootloader files
 
-	@echo ">>> Removing old updater versions..."
-	rm -f "../../FNIRSI_1013D_Firmware-main/firmware_Atlan_Peco/scope v"*.bin
-	#- rm -f "/media/dk/6741-6DAB/firmware Atlan & PECO/scope v"*.bin
-	- rm -f "/media/dk/5229-1580/firmware Atlan & PECO/scope v"*.bin
-	- rm -f "/media/dk/524A-7973/firmware Atlan & PECO/scope v"*.bin
-	- rm -f "/media/dk/B80A-91C3/firmware Atlan & PECO/scope v"*.bin
+# (port) author's personal deploy disabled — these deleted "scope v*.bin" in a sibling repo and
+# on the author's USB drives; harmful/irrelevant to this port. Left as comments for provenance.
+#	rm -f "../../FNIRSI_1013D_Firmware-main/firmware_Atlan_Peco/scope v"*.bin
+#	- rm -f "/media/dk/5229-1580/firmware Atlan & PECO/scope v"*.bin
+#	- rm -f "/media/dk/524A-7973/firmware Atlan & PECO/scope v"*.bin
+#	- rm -f "/media/dk/B80A-91C3/firmware Atlan & PECO/scope v"*.bin
 	
 # Skopírovať výsledný binárny súbor s pridanou verziou v názve
 	@echo ">>> VERSION DETECTED: $(VERSION_STRING)"
@@ -110,7 +110,11 @@ build: .build-post
 #	chmod a+rwx dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin
 
 
-# SD card package
+# SD card package: start from the committed bootloader base (SPL + splash loader, no scope), then
+# overlay the freshly-built scope into it at 0x5BC00 so fnirsi_1013d.bin is standalone-bootable
+# and can be dd'd to SD (seek=8). bootloader_base.bin = first 0x5BC00 bytes of Atlan4 v1.00o5's
+# packed image. Without this cp, flashfilepacker has no base and the scope alone is not bootable.
+	cp bootloader_base.bin dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin
 	./flashfilepacker -o dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin -i dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin -l 0x5BC00
 # 	./flashfilepacker -o dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin -i dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin -l 0x8000 0x5BC00
 
