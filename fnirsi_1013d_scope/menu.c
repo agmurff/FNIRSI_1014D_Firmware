@@ -12,6 +12,7 @@
 #include "display_lib.h"
 #include "ff.h"
 #include "DS3231.h"
+#include "port_config.h"
 
 #include "usb_interface.h"
 #include "PC_interface.h"
@@ -48,48 +49,65 @@ void scope_setup_main_screen(void)
 
   //Setup the menu bar on the right side
   scope_setup_right_control_menu();
+  DBG_STAGE(1);
 
   //Check if normal or wave view mode
   if(scopesettings.waveviewmode)
   {
     //Wave view mode so show return button
     scope_main_return_button(0);
-  }    
+  }
   else
   {
     //Normal mode so show menu button
     scope_menu_button(0);
   }
+  DBG_STAGE(2);
 
   //Show the user if the acquisition is running or stopped
   scope_run_stop_text();
+  DBG_STAGE(3);
 
   //Display the channel menu select buttons and their settings
   scope_channel_settings(&scopesettings.channel1, 0);
   scope_channel_settings(&scopesettings.channel2, 0);
+  DBG_STAGE(4);
 
   //Display the current time per div setting
   scope_acqusition_settings(0);
+  DBG_STAGE(5);
 
   //Show the user selected move speed
   scope_move_speed(0);
-  
+  DBG_STAGE(6);
+
   //Show the icon to white sun or yellow sun-max light
-  scope_maxlight_item(scopesettings.maxlight);      
+  scope_maxlight_item(scopesettings.maxlight);
+  DBG_STAGE(7);
 
   //Display the trigger menu select button and the settings
   scope_trigger_settings(0);
-  
+  DBG_STAGE(8);
+
   //Display the generator menu and the settings
+#if PORT_1014D
+  //1014D: scope_generator_settings() does not return here on a fresh flash (hangs init before the
+  //main loop). Skipped for now to get the scope running; the signal-generator panel is non-essential
+  //and the underlying hang can be fixed separately.
+#else
   scope_generator_settings(0);
+#endif
+  DBG_STAGE(9);
 
   //Show the battery charge level and charging indicator
   scope_battery_status();
-  
+  DBG_STAGE(10);
+
   //Show version information
   display_set_fg_color(WHITE_COLOR);
   display_set_font(&font_2);
   display_text(VERSION_STRING_XPOS, VERSION_STRING_YPOS, VERSION_STRING+1);
+  DBG_STAGE(11);
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------

@@ -185,9 +185,31 @@ int main(void)
   //load picture startup logo
   load_picture("scope.bmp");
   //if (!dev_mode) timer0_delay(3000);//2000
-  
+
+#if PORT_A_KEYDEBUG
+  //PROOF-OF-LIFE: unmistakable full-screen flash held 2s. If you see a magenta screen with green
+  //"PORT_A 1014D BUILD RUNNING", the FEL-loaded binary IS our code and the display path works.
+  //If you do NOT see it, the wrong image is executing (check the sunxi-fel file/path) OR it hangs
+  //before this point (you'd also not see the normal startup logo just before it).
+  display_set_screen_buffer((uint16 *)maindisplaybuffer);
+  display_set_fg_color(0x00FF00FF);
+  display_fill_rect(0, 0, 800, 480);
+  display_set_fg_color(0x0000FF00);
+  display_set_font(&font_5);
+  display_text(120, 210, "PORT_A 1014D BUILD RUNNING");
+  timer0_delay(2000);
+#endif
+
   //View message if load a default configuration in case of settings
+#if PORT_1014D
+  //1014D has no touch panel. scope_setup_restore_screen() ends in `while(havetouch==0)
+  //tp_i2c_read_status();`, which can never be satisfied here, so it hangs init BEFORE the main
+  //loop ever runs (this is the "stuck on first boot" freeze). Skip the acknowledge prompt;
+  //defaults were already applied by scope_load_configuration_data().
+  (void)restore;
+#else
   if (restore) scope_setup_restore_screen();
+#endif
   
   //Set battery level to max for next calculations
   scopesettings.batterychargelevel = 20;    
@@ -197,7 +219,8 @@ int main(void)
   
   //Setup the main parts of the screen
   scope_setup_main_screen();
-  
+  DBG_STAGE(2);   //main screen chrome drawn
+
   //Modification on 09-03-2022. Begin
   //Clear the sample memory
   //memset(channel1tracebuffer, 128, sizeof(channel1tracebuffer));
@@ -244,9 +267,11 @@ int main(void)
   havetouch = 0;
   
   scope_preset_values();
-  
+  DBG_STAGE(3);   //scope_preset_values done
+
   ini_SysParam();
-   
+  DBG_STAGE(4);   //ini_SysParam done
+
   //Wait until the analog part start
   timer0_delay(50);
   
@@ -264,10 +289,40 @@ int main(void)
   //1014D: bring up the UART1 key controller (PA2/PA3) for physical-key input.
   uart1_setup();
 #endif
+  DBG_STAGE(5);   //uart1_setup done, about to enter main loop
+
+#if PORT_A_KEYDEBUG
+  //Capture the FPGA version once (also sets fpgasettings.fw_FPGA as a side effect).
+  //  1432 -> fw 1 (original Fnirsi, legacy path)  |  1532 -> fw 2 (AL3)  |  1632 -> fw 3 (EF2)
+  //  anything else -> fw 0 = UNHANDLED -> acquisition falls through both branches -> hang.
+  uint16 dbg_fpgaver = fpga_get_version();
+#endif
 
   //Monitor the battery, process and display trace data and handle user input until power is switched off
   while(1)
   {
+#if PORT_A_KEYDEBUG
+    //Diagnostics in the RIGHT button column (x>=730). The per-frame trace fill only clears x<730,
+    //so this region persists across frames. Drawn at the top of the loop, BEFORE acquisition:
+    //  - heartbeat must count up; frozen = loop stuck in scope_acquire_trace_data (FPGA never
+    //    returns) and never reaching uart1_handler().
+    //  - ver/fw show which acquisition path Atlan4 took; key = last non-zero UART key code.
+    {
+      static uint32 hb = 0;
+      display_set_screen_buffer((uint16 *)maindisplaybuffer);  //draw to the VISIBLE framebuffer
+      display_set_font(&font_3);
+      display_set_fg_color(0x00000000);
+      display_fill_rect(732, 300, 68, 150);
+      display_set_fg_color(0x0000FF00);
+      display_decimal(734, 302, ++hb);            //heartbeat: must increment
+      display_hex(734, 322, 4, dbg_fpgaver);      //FPGA version (expect 1432)
+      display_decimal(734, 342, fpgasettings.fw_FPGA); //fw path (expect 1)
+      display_decimal(734, 362, g_uart_key);      //last non-zero key code (0 = nothing received)
+      display_hex(734, 382, 2, g_uart_lsr);       //UART LSR bits ever seen: 01=data 08=framing 02=overrun
+      display_hex(734, 402, 4, (uint16)g_uart_cfg);//PA mux low16 (expect 5511)
+      display_hex(734, 422, 2, g_uart_dll);       //baud divisor DLL (expect 4E)
+    }
+#endif
     //Handle the touch panel input
     //touch_handler();
     
@@ -275,7 +330,8 @@ int main(void)
     
     //Monitor the battery status
     battery_check_status();
-    
+    DBG_STAGE(6);   //battery check done (loop is alive)
+
     //Handle the touch panel input
     //touch_handler();
     
@@ -352,8 +408,9 @@ int main(void)
             
             
             //Go through the trace data and display the trace data
+            DBG_STAGE(7);   //about to acquire
             scope_acquire_trace_data();
-             
+            DBG_STAGE(8);   //acquire returned
         }
     }
     
@@ -379,6 +436,7 @@ int main(void)
     //--------------------------------------------------------------------------
 
     //Handle user input
+    DBG_STAGE(9);   //trace pipeline done, about to poll keys
 #if PORT_1014D
     //1014D: poll the physical key controller over UART1 and dispatch.
     uart1_handler();

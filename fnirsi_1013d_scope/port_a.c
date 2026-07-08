@@ -12,6 +12,7 @@
 //----------------------------------------------------------------------------------------------------------------------------------
 
 #include "variables.h"
+#include "port_config.h"
 #include "port_a.h"
 #include "ccu_control.h"
 #include "display_lib.h"
@@ -20,6 +21,17 @@
 #include "statemachine.h"
 #include "menu.h"
 #include "timer.h"
+#include "sd_card_interface.h"
+
+//Last non-zero key code read from the UART key controller; shown by main()'s PORT_A_KEYDEBUG readout.
+volatile uint8 g_uart_key = 0;
+
+//Accumulated UART1 line-status bits ever seen (for diagnosing the receive path).
+volatile uint8 g_uart_lsr = 0;
+
+//Runtime read-backs for diagnostics: Port A pin-mux config, and the UART baud divisor (debug DLL).
+volatile uint32 g_uart_cfg = 0;   //expect 0x....5511 (PA2/PA3 = func 5 = UART1)
+volatile uint8  g_uart_dll = 0;   //expect 0x4E
 
 //----------------------------------------------------------------------------------------------------------------------------------
 //ClockGen could use register file from ClockBuilder Pro, but currently there are only few registers set, so setting them separately
@@ -349,8 +361,34 @@ void display_stage( uint8 stage ) {
 
 //----------------------------------------------------------------------------------------------------------------------------------
 
+//Select the boot source honoured by the loader on the next reboot and warm-reset into it.
+//  mode 0 = peco, 1 = fnirsi (boot the scope from SD), 2 = FEL (USB update mode).
+//The value is written raw (no 0x04 "show menu" bit) so it takes effect without the touch-only
+//boot menu, then persisted to the display-config sector (SD 710) the loader reads at boot.
+void port_a_set_boot_source(uint8 mode)
+{
+  uint32 *cfg = STARTUP_CONFIG_ADDRESS;   //DRAM copy of the boot-config byte (0x81BFFC1F)
+
+  *cfg = mode & 0x07;
+
+  //Persist the whole config sector from DRAM back to the SD card (mirrors the settings-menu path).
+  sd_card_write(DISPLAY_CONFIG_SECTOR, 1, (uint8 *)0x81BFFC00);
+
+  //Warm-reset via the watchdog so the loader re-runs and honours the new choice. If the reset does
+  //not fire on this silicon the byte is already saved, so a manual power-cycle achieves the same.
+  *WDOG_CFG_REG  = 1;                 //whole-system reset
+  *WDOG_MODE_REG = 1;                 //enable, shortest interval
+  *WDOG_CTRL_REG = (0x0A57 << 1) | 1; //key + restart (sun6i-style)
+  while(1);
+}
+
 void uart1_handler(void)
 {
+  //Re-assert the UART1 pin-mux on PA2/PA3. Other code paths (touch status poll in the FPGA
+  //acquisition, DS3231 RTC reads) rewrite PORT_A_CFG_REG to the touch/I2C config (0xFFFF1101),
+  //which tears PA2/PA3 out of UART mode. Restore it before every poll so keys are reachable.
+  *PORT_A_CFG_REG = 0xFFFF5511;
+
   //wait for room in transmit FIFO
   while(!(*UART1_USR_REG & 0x2));
 
@@ -360,10 +398,25 @@ void uart1_handler(void)
   //wait for the byte to be transfered
   while(!(*UART1_USR_REG & 0x2));
 
-  //wait for data in receive FIFO
-//  while(!(*UART1_USR_REG & 0x8));
+  //Wait (BOUNDED) for the controller's reply to appear in the receive FIFO. The original code read
+  //RX immediately (assuming the reply from the previous poll was already latched); if it is not, we
+  //read nothing. Bounded so a silent controller can't hang the loop.
+  {
+    uint32 rx_to = 0;
+    while(!(*UART1_USR_REG & 0x8)) { if(++rx_to > 200000) break; }
+  }
 
   uint8 val = *UART1_RX_REG;
+
+#if PORT_A_KEYDEBUG
+  //Diagnostics for main()'s on-screen readout: accumulate line-status bits ever seen, latch the
+  //pin-mux and baud read-backs, and the last non-zero key code.
+  g_uart_lsr |= (uint8)(*UART1_LSR_REG);
+  g_uart_cfg  = *PORT_A_CFG_REG;
+  g_uart_dll  = (uint8)(*UART1_DBG_DLL_REG);
+  if(val) g_uart_key = val;
+#endif
+
 #ifdef DEBUG
   //display read data
   static uint8 sval = 0;
@@ -635,6 +688,34 @@ void uart1_handler(void)
       scopesettings.timeperdiv++;
       scope_acqusition_settings( 0 );
     }
+  }
+
+  //--- Boot-source switch (provisional key bindings; remap once the control tree is designed) ---
+  //F1 = enter FEL / USB update mode. Requires TWO consecutive F1 presses so an accidental tap
+  //can't strand the unit in update mode. F2 = go back to normal SD-card boot of the scope.
+  static uint8 fel_armed = 0;
+
+  if( GD_KEY_F1 == val )
+  {
+    if( fel_armed )
+    {
+      port_a_set_boot_source(2);   //does not return (warm-resets into FEL)
+    }
+    else
+    {
+      fel_armed = 1;
+      display_set_fg_color(0x00FF0000);
+      display_set_font(&font_2);
+      display_text(250, 2, "Press F1 again: reboot to UPDATE (FEL)");
+    }
+  }
+  else if( GD_KEY_F2 == val )
+  {
+    port_a_set_boot_source(1);     //normal SD-card scope boot; does not return
+  }
+  else if( val != 0 )
+  {
+    fel_armed = 0;                 //any other key cancels the pending FEL confirm
   }
 }
 

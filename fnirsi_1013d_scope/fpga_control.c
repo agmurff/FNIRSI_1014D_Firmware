@@ -4,6 +4,7 @@
 #include "touchpanel.h"
 #include "timer.h"
 #include "variables.h"
+#include "port_config.h"
 
 //----------------------------------------------------------------------------------------------------------------------------------
 
@@ -632,8 +633,16 @@ void fpga_do_conversion(void)
   //Send check on ready command
   fpga_write_cmd(0x05);
   
-  //Wait for the flag to become 1
-  while((fpga_read_byte() & 1) == 0);
+  //Wait for the flag to become 1 (bounded: on the 1014D FPGA this can never assert if the sample
+  //clock/handshake differs, which would hang the whole main loop here before it reaches input
+  //handling. Time out and continue so the scope stays responsive instead of freezing.)
+  {
+    uint32 fpga_ready_timeout = 0;
+    while((fpga_read_byte() & 1) == 0)
+    {
+      if(++fpga_ready_timeout > 2000000) break;
+    }
+  }
   
   //Test again to make sure it was no glitch?????
   //while((fpga_read_byte() & 1) == 0);
@@ -683,8 +692,14 @@ uint8 fpga_done_conversion(void)
   }
   
   //Scan the touch panel
+#if PORT_1014D
+  //1014D: no touch panel, and tp_i2c_read_status() rewrites PORT_A_CFG_REG to the touch I2C config
+  //(0xFFFF1101) — tearing PA2/PA3 out of UART mode every acquisition and jamming the key-controller
+  //lines. Skip it so the UART key input keeps working.
+#else
   tp_i2c_read_status();
   if (havetouch == 1) scopesettings.display_data_done = 1;
+#endif
       
   return (scopesettings.conversion_done);
 }

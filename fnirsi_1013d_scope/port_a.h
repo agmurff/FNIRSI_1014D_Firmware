@@ -120,6 +120,9 @@ void uart1_setup(void);
 
 void uart1_handler(void);
 
+//Persist a boot-source choice (0=peco, 1=SD scope, 2=FEL) and warm-reset into it. Does not return.
+void port_a_set_boot_source(uint8 mode);
+
 void cg_i2c_setup(void);
 
 void cg_i2c_send_data(uint16 reg_addr, uint8 *buffer, uint32 size);
@@ -134,7 +137,15 @@ void cg_i2c_send_byte(uint8 data);
 
 void cg_delay(uint32 usec);
 
+//Last non-zero key code read from the UART key controller (defined in port_a.c).
+extern volatile uint8 g_uart_key;
 
+//Accumulated UART1 line-status bits ever seen (defined in port_a.c).
+extern volatile uint8 g_uart_lsr;
+
+//Runtime read-backs for diagnostics (defined in port_a.c).
+extern volatile uint32 g_uart_cfg;
+extern volatile uint8  g_uart_dll;
 
 //----------------------------------------------------------------------------------------------------------------------------------
 
