@@ -174,13 +174,9 @@ void display_draw_pixel(uint32 x, uint32 y)
 {
   register uint16 *ptr;
 
-  //Check on screen bounds
   if((x >= 0) && (x < displaydata.width) && (y >= 0) && (y < displaydata.height))
    {
-      //Point to the pixel in the screen buffer
       ptr = displaydata.screenbuffer + ((y * displaydata.pixelsperline) + x);
-
-      //Fill the dot
       *ptr = displaydata.fg_color;
     }
 }
@@ -1506,7 +1502,7 @@ void display_character(uint32 xpos, uint32 ypos, int8 text)
 
 //----------------------------------------------------------------------------------------------------------------------------------
 
-void display_text(uint32 xpos, uint32 ypos, int8 *text)
+void display_text(uint32 xpos, uint32 ypos, const char *text)
 {
   //Set the positions for drawing
   displaydata.xpos = xpos;
@@ -1752,3 +1748,167 @@ void render_fw_character(uint16 character)
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
+
+void display_draw_shaded_rect(uint32 xpos, uint32 ypos, PSHADEDRECTDATA shadeinfo, PTEXTDATA textinfo)
+{
+  int i;
+  int x = xpos;
+  int y = ypos;
+  int w = shadeinfo->width;
+  int h = shadeinfo->height;
+
+  for(i=0;i<3;i++)
+  {
+    display_set_fg_color(shadeinfo->rectcolors[i]);
+    display_draw_rect(x, y, w, h);
+    x++;
+    y++;
+    w -= 2;
+    h -= 2;
+  }
+
+  display_set_fg_color(shadeinfo->fillcolor);
+  display_fill_rect(x, y, w - 1, h - 1);
+
+  if(textinfo)
+  {
+    x = xpos + textinfo->xoffset;
+    y = ypos + textinfo->yoffset;
+    display_set_fg_color(textinfo->color);
+    display_set_font(textinfo->font);
+    display_text(x, y, textinfo->text);
+  }
+}
+
+void display_draw_highlight_rect(uint32 xpos, uint32 ypos, PHIGHLIGHTRECTDATA highlightinfo)
+{
+  int i;
+  int x = xpos;
+  int y = ypos;
+  int w = highlightinfo->width;
+  int h = highlightinfo->height;
+
+  for(i=0;i<4;i++)
+  {
+    display_set_fg_color(highlightinfo->rectcolors[i]);
+    display_draw_rect(x, y, w, h);
+    x++;
+    y++;
+    w -= 2;
+    h -= 2;
+  }
+
+  display_set_fg_color(highlightinfo->fillcolor);
+  display_fill_rect(x, y, w - 1, h - 1);
+}
+
+void display_draw_shaded_rounded_rect(uint32 xpos, uint32 ypos, PSHADEDROUNDEDRECTDATA shadeinfo)
+{
+  int i;
+  int x = xpos;
+  int y = ypos;
+  int w = shadeinfo->width;
+  int h = shadeinfo->height;
+  int r = shadeinfo->radius;
+
+  for(i=0;i<3;i++)
+  {
+    display_set_fg_color(shadeinfo->rectcolors[i]);
+    display_draw_rounded_rect(x, y, w, h, r);
+    x++;
+    y++;
+    w -= 2;
+    h -= 2;
+    r--;
+  }
+
+  display_set_fg_color(shadeinfo->fillcolor);
+  display_fill_rounded_rect(x, y, w - 1, h - 1, r);
+}
+
+void display_copy_icon_full_color(const uint16 *icon, uint32 xpos, uint32 ypos, uint32 width, uint32 height)
+{
+  register uint16 *ptr;
+  register uint32  line;
+  register uint32  pixel;
+  register uint32  idx;
+  register uint32  pixels = displaydata.pixelsperline;
+
+  ptr = displaydata.screenbuffer + xpos + (ypos * pixels);
+
+  for(line=0;line<height;line++)
+  {
+    idx = line * width;
+
+    for(pixel=0;pixel<width;pixel++)
+    {
+      ptr[pixel] = icon[idx++];
+    }
+
+    ptr += pixels;
+  }
+}
+
+void display_right_aligned_text(uint32 xpos, uint32 ypos, const char *text)
+{
+  displaydata.ypos = ypos;
+
+  if(displaydata.font->type == VARIABLE_WIDTH_FONT)
+  {
+    displaydata.xpos = xpos - calc_vw_string_width(text);
+
+    while(*text)
+    {
+      draw_vw_character((uint16)*text);
+      text++;
+    }
+  }
+  else if(displaydata.font->type == FIXED_WIDTH_FONT)
+  {
+    displaydata.xpos = xpos - calc_fw_string_width(text);
+
+    while(*text)
+    {
+      draw_fw_character((uint16)*text);
+      text++;
+    }
+  }
+}
+
+uint32 calc_vw_string_width(const char *text)
+{
+  PFONTDATA        font = displaydata.font;
+  PFONTINFORMATION info;
+  PFONTMETRICS     metrics;
+  uint32           width = 0;
+
+  while(*text)
+  {
+    info = check_char_in_vw_font(font->fontinformation, (uint16)*text);
+
+    if(info)
+    {
+      metrics = &info->fontmetrics[(uint16)*text - info->first_char];
+      width += metrics->width;
+    }
+
+    text++;
+  }
+
+  return(width);
+}
+
+uint32 calc_fw_string_width(const char *text)
+{
+  PFONTDATA           font = displaydata.font;
+  PFONTFIXEDWIDTHINFO info = font->fontinformation;
+  uint32              width = 0;
+
+  while(*text)
+  {
+    width += info->width;
+    text++;
+  }
+
+  return(width);
+}

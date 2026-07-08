@@ -12,7 +12,8 @@
 #include "fpga_control.h"
 #include "touchpanel.h"
 #include "port_config.h"
-#include "port_a.h"
+#include "clock_synthesizer.h"
+#include "uart.h"
 #include "power_and_battery.h"
 #include "DS3231.h"
 
@@ -20,6 +21,9 @@
 #include "display_lib.h"
 #include "scope_functions.h"
 #include "statemachine.h"
+#if PORT_1014D
+#include "menu_1014d.h"
+#endif
 
 #include "sd_card_interface.h"
 #include "ff.h"
@@ -73,7 +77,7 @@ int main(void)
 #if PORT_1014D
   //1014D: program the external Si5351 clock generator (PA0/PA1) BEFORE the FPGA, so the FPGA/ADC
   //has its sample clock and the FPGA-driven backlight PWM is stable (otherwise the display flashes).
-  cg_i2c_setup();
+  clock_synthesizer_setup();
 #endif
 
   //Initialize FPGA (PORT E)
@@ -187,10 +191,7 @@ int main(void)
   //if (!dev_mode) timer0_delay(3000);//2000
 
 #if PORT_A_KEYDEBUG
-  //PROOF-OF-LIFE: unmistakable full-screen flash held 2s. If you see a magenta screen with green
-  //"PORT_A 1014D BUILD RUNNING", the FEL-loaded binary IS our code and the display path works.
-  //If you do NOT see it, the wrong image is executing (check the sunxi-fel file/path) OR it hangs
-  //before this point (you'd also not see the normal startup logo just before it).
+  //PROOF-OF-LIFE: full-screen magenta flash held 2s
   display_set_screen_buffer((uint16 *)maindisplaybuffer);
   display_set_fg_color(0x00FF00FF);
   display_fill_rect(0, 0, 800, 480);
@@ -202,11 +203,8 @@ int main(void)
 
   //View message if load a default configuration in case of settings
 #if PORT_1014D
-  //1014D has no touch panel. scope_setup_restore_screen() ends in `while(havetouch==0)
-  //tp_i2c_read_status();`, which can never be satisfied here, so it hangs init BEFORE the main
-  //loop ever runs (this is the "stuck on first boot" freeze). Skip the acknowledge prompt;
-  //defaults were already applied by scope_load_configuration_data().
-  (void)restore;
+  //1014D: skip restore screen (no touch panel, would hang waiting for touch)
+  restore = 0;
 #else
   if (restore) scope_setup_restore_screen();
 #endif
@@ -218,7 +216,11 @@ int main(void)
   scope_set_maxlight(scopesettings.maxlight);       //1 set max, 0 user value
   
   //Setup the main parts of the screen
+#if PORT_1014D
+  ui_setup_main_screen();
+#else
   scope_setup_main_screen();
+#endif
   DBG_STAGE(2);   //main screen chrome drawn
 
   //Modification on 09-03-2022. Begin
@@ -286,15 +288,12 @@ int main(void)
   //scope_open_keyboard_menu();
 
 #if PORT_1014D
-  //1014D: bring up the UART1 key controller (PA2/PA3) for physical-key input.
-  uart1_setup();
+  uart1_init();
+  sm_init();
 #endif
   DBG_STAGE(5);   //uart1_setup done, about to enter main loop
 
 #if PORT_A_KEYDEBUG
-  //Capture the FPGA version once (also sets fpgasettings.fw_FPGA as a side effect).
-  //  1432 -> fw 1 (original Fnirsi, legacy path)  |  1532 -> fw 2 (AL3)  |  1632 -> fw 3 (EF2)
-  //  anything else -> fw 0 = UNHANDLED -> acquisition falls through both branches -> hang.
   uint16 dbg_fpgaver = fpga_get_version();
 #endif
 
@@ -302,11 +301,7 @@ int main(void)
   while(1)
   {
 #if PORT_A_KEYDEBUG
-    //Diagnostics in the RIGHT button column (x>=730). The per-frame trace fill only clears x<730,
-    //so this region persists across frames. Drawn at the top of the loop, BEFORE acquisition:
-    //  - heartbeat must count up; frozen = loop stuck in scope_acquire_trace_data (FPGA never
-    //    returns) and never reaching uart1_handler().
-    //  - ver/fw show which acquisition path Atlan4 took; key = last non-zero UART key code.
+    //Diagnostic overlay in right column (heartbeat, FPGA version, key code)
     {
       static uint32 hb = 0;
       display_set_screen_buffer((uint16 *)maindisplaybuffer);  //draw to the VISIBLE framebuffer
@@ -317,10 +312,10 @@ int main(void)
       display_decimal(734, 302, ++hb);            //heartbeat: must increment
       display_hex(734, 322, 4, dbg_fpgaver);      //FPGA version (expect 1432)
       display_decimal(734, 342, fpgasettings.fw_FPGA); //fw path (expect 1)
-      display_decimal(734, 362, g_uart_key);      //last non-zero key code (0 = nothing received)
-      display_hex(734, 382, 2, g_uart_lsr);       //UART LSR bits ever seen: 01=data 08=framing 02=overrun
-      display_hex(734, 402, 4, (uint16)g_uart_cfg);//PA mux low16 (expect 5511)
-      display_hex(734, 422, 2, g_uart_dll);       //baud divisor DLL (expect 4E)
+      display_decimal(734, 362, toprocesscommand); //last non-zero key code (0 = nothing received)
+      display_hex(734, 382, 2, 0);                //LSR placeholder
+      display_hex(734, 402, 4, 0);                //cfg placeholder
+      display_hex(734, 422, 2, 0);                //DLL placeholder
     }
 #endif
     //Handle the touch panel input
@@ -438,8 +433,11 @@ int main(void)
     //Handle user input
     DBG_STAGE(9);   //trace pipeline done, about to poll keys
 #if PORT_1014D
-    //1014D: poll the physical key controller over UART1 and dispatch.
-    uart1_handler();
+    sm_handle_user_input();
+    if(enabletracedisplay)
+    {
+        scope_display_trace_data();
+    }
 #else
     //1013D: handle the touch panel input
     touch_handler();

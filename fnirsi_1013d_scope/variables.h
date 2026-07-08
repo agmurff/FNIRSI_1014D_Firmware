@@ -11,12 +11,19 @@
 #include "font_structs.h"
 #include "fnirsi_1013d_scope.h"
 #include "ff.h"
+#include "port_config.h"
 
 //----------------------------------------------------------------------------------------------------------------------------------
 //Version info
 //----------------------------------------------------------------------------------------------------------------------------------
 
-#define VERSION_STRING             "v1.00o5" //fix EF2 circle buffer to 6144, add text in diagnostic screen
+#if PORT_1014D
+#define VERSION_BUILD "-1014D"
+#else
+#define VERSION_BUILD ""
+#endif
+
+#define VERSION_STRING             "v1.00o5" VERSION_BUILD //fix EF2 circle buffer to 6144, add text in diagnostic screen
 
 #define VERSION_STRING_XPOS             698//690//681     //690 
 #define VERSION_STRING_YPOS              24
@@ -60,9 +67,12 @@
 
 //States for displaying the selected signs
 #define VIEW_ITEM_NOT_SELECTED            0
+#define VIEW_ITEM_SELECTED                1
 #define VIEW_ITEM_SELECTED_NOT_DISPLAYED  1
 #define VIEW_ITEM_SELECTED_DISPLAYED      2
 #define VIEW_ITEM_NOT_SELECTED_DISPLAYED  3
+
+#define VIEW_ITEMS_PER_ROW                4
 
 //States for select mode
 #define VIEW_SELECT_NONE                  0
@@ -112,9 +122,134 @@
 
 #define WAVEFORM_FILE_ERROR             200
 
+#define WAVEFORM_FILE_ID1             0x4F434550
+#define WAVEFORM_FILE_ID2             0x34313031
+
+#define RUN_STATE_STOPPED                 0
+#define RUN_STATE_RUNNING                 1
+
 #define THUMBNAIL_POINTER_RIGHT           0
 #define THUMBNAIL_POINTER_LEFT            1
 #define THUMBNAIL_POINTER_DOWN            2
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//Trace window properties (1014D)
+//----------------------------------------------------------------------------------------------------------------------------------
+
+#define TRACE_WINDOW_BORDER_XPOS          5
+#define TRACE_WINDOW_BORDER_YPOS         58
+#define TRACE_WINDOW_BORDER_WIDTH       701
+#define TRACE_WINDOW_BORDER_HEIGHT      401
+
+#define TRACE_MAX_WIDTH                 (TRACE_WINDOW_BORDER_WIDTH - 2)
+#define TRACE_MAX_HEIGHT                (TRACE_WINDOW_BORDER_HEIGHT - 2)
+
+#define TRACE_HORIZONTAL_START          (TRACE_WINDOW_BORDER_XPOS + 1)
+#define TRACE_VERTICAL_START            (TRACE_WINDOW_BORDER_YPOS + 1)
+
+#define TRACE_HORIZONTAL_END            (TRACE_HORIZONTAL_START + TRACE_MAX_WIDTH)
+#define TRACE_VERTICAL_END              (TRACE_VERTICAL_START + TRACE_MAX_HEIGHT)
+
+#define TRACE_HORIZONTAL_CENTER         ((TRACE_MAX_WIDTH / 2) + TRACE_HORIZONTAL_START)
+#define TRACE_VERTICAL_CENTER           ((TRACE_MAX_HEIGHT / 2) + TRACE_VERTICAL_START)
+
+#define VERTICAL_POINTER_WIDTH           21
+#define VERTICAL_POINTER_HEIGHT          15
+#define VERTICAL_POINTER_TOP             TRACE_VERTICAL_START
+#define VERTICAL_POINTER_BOTTOM          TRACE_VERTICAL_END
+#define VERTICAL_POINTER_OFFSET          (VERTICAL_POINTER_HEIGHT / 2)
+#define VERTICAL_POINTER_CENTER          (TRACE_WINDOW_BORDER_HEIGHT / 2)
+
+#define HORIZONTAL_POINTER_WIDTH         15
+#define HORIZONTAL_POINTER_HEIGHT        21
+#define HORIZONTAL_POINTER_LEFT          TRACE_HORIZONTAL_START
+#define HORIZONTAL_POINTER_RIGHT         (TRACE_HORIZONTAL_END - HORIZONTAL_POINTER_WIDTH)
+
+#define VERTICAL_POINTER_LEFT            TRACE_HORIZONTAL_START
+#define VERTICAL_POINTER_RIGHT           (TRACE_HORIZONTAL_END - VERTICAL_POINTER_WIDTH)
+#define VERTICAL_POINTER_XY_OFFSET       (TRACE_HORIZONTAL_CENTER - VERTICAL_POINTER_CENTER - VERTICAL_POINTER_OFFSET)
+
+#define VERTICAL_POINTER_POS_MIN         1
+#define VERTICAL_POINTER_POS_MAX         TRACE_MAX_HEIGHT
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//Grid defines (1014D)
+//----------------------------------------------------------------------------------------------------------------------------------
+
+#define DOT_SPACING                       5
+#define LINE_SPACING                     50
+#define DOT_HORIZONTAL_START              (TRACE_HORIZONTAL_START + 4)
+#define DOT_VERTICAL_START                (TRACE_VERTICAL_START + 4)
+#define LINE_HORIZONTAL_START             ((TRACE_HORIZONTAL_START + LINE_SPACING) - 1)
+#define LINE_VERTICAL_START               ((TRACE_VERTICAL_START + LINE_SPACING) - 1)
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//Cursor defines (1014D)
+//----------------------------------------------------------------------------------------------------------------------------------
+
+#define CURSOR_LINE_LENGTH                 3
+#define CURSOR_SPACE_LENGTH                2
+
+#define CURSOR_TIME_LEFT                   0
+#define CURSOR_TIME_RIGHT                  1
+#define CURSOR_VOLT_TOP                    2
+#define CURSOR_VOLT_BOTTOM                 3
+#define CURSOR_CAPTURE_LEFT                4
+#define CURSOR_CAPTURE_RIGHT               5
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//Measurement display defines (1014D)
+//----------------------------------------------------------------------------------------------------------------------------------
+
+#define MEASUREMENT_CHANNEL_BOX_X        772
+#define MEASUREMENT_LABEL_X              719
+#define MEASUREMENT_DESIGNATOR_X         768
+#define MEASUREMENT_ZERO_X               735
+#define MEASUREMENT_VALUE_X              719
+#define MEASUREMENT_INFO_Y                21
+#define MEASUREMENT_Y_DISPLACEMENT        80
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//Thumbnail calculation values (1014D)
+//----------------------------------------------------------------------------------------------------------------------------------
+
+#define THUMBNAIL_SAMPLE_MULTIPLIER   10000
+#define THUMBNAIL_X_DIVIDER           41834
+#define THUMBNAIL_Y_DIVIDER           42903
+#define THUMBNAIL_TRACE_HEIGHT           94
+
+#define VIEW_FILENAME_XPOS             330
+#define VIEW_FILENAME_YPOS             458
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//1014D UI display constants
+//----------------------------------------------------------------------------------------------------------------------------------
+
+#define DISPLAY_MODE_X_Y                  1
+#define CURSOR_SELECTED_TEXT_WIDTH       51
+#define CURSOR_SELECTED_TEXT_OFFSET       3
+#define ON_OFF_TEXT_X_OFFSET             31
+#define ON_OFF_TEXT_ON_Y_OFFSET          10
+#define ON_OFF_TEXT_OFF_Y_OFFSET         42
+
+
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//1014D UI shade outline defines
+//----------------------------------------------------------------------------------------------------------------------------------
+
+#define TOP_SHADE_LEFT_START             50
+#define TOP_SHADE_LEFT_END              110
+#define TOP_SHADE_RIGHT_START           227
+#define TOP_SHADE_RIGHT_END             492
+#define BOTTOM_SHADE_START              222
+#define BOTTOM_SHADE_END                622
+#define BOTTOM_SHADE_CUTOUT_START       252
+#define BOTTOM_SHADE_CUTOUT_END         595
+#define BOTTOM_SHADE_CUTOUT_STEP         10
+#define BOTTOM_SHADE_CUTOUT_TOP         (TRACE_WINDOW_BORDER_YPOS + TRACE_WINDOW_BORDER_HEIGHT + 5)
+#define BOTTOM_SHADE_CUTOUT_WIDTH         2
+#define BOTTOM_SHADE_CUTOUT_HEIGHT        9
 
 #define PICTURE_HEADER_SIZE               70
 #define PICTURE_DATA_SIZE                 (800 * 480 * 2)                              //trace data
@@ -401,6 +536,8 @@ typedef struct tagFPGASettings          FPGASETTINGS,         *PFPGASETTINGS;
 
 typedef struct tagThumbnailData         THUMBNAILDATA,        *PTHUMBNAILDATA;
 
+typedef struct tagMeasurementInfo       MEASUREMENTINFO,      *PMEASUREMENTINFO;
+
 typedef struct tagPathInfo              PATHINFO,             *PPATHINFO;
 
 typedef struct tagScreenTimeCalcData    SCREENTIMECALCDATA,   *PSCREENTIMECALCDATA;
@@ -408,9 +545,17 @@ typedef struct tagVoltCalcData          VOLTCALCDATA,         *PVOLTCALCDATA;
 typedef struct tagFreqCalcData          FREQCALCDATA,         *PFREQCALCDATA;
 typedef struct tagTimeCalcData          TIMECALCDATA,         *PTIMECALCDATA;
 
+typedef struct tagShadedRectData        SHADEDRECTDATA,       *PSHADEDRECTDATA;
+typedef struct tagTextData              TEXTDATA,             *PTEXTDATA;
+typedef struct tagHighlightRectData     HIGHLIGHTRECTDATA,    *PHIGHLIGHTRECTDATA;
+typedef struct tagShadedRoundedRectData SHADEDROUNDEDRECTDATA,   *PSHADEDROUNDEDRECTDATA;
+
 //----------------------------------------------------------------------------------------------------------------------------------
 
 typedef void (*MEASUREMENTFUNCTION)(PCHANNELSETTINGS settings);
+typedef void (*UI_MEASUREMENTFUNCTION)(uint32 ypos, PCHANNELSETTINGS settings);
+typedef void (*MSMITEMFUNCTION)(uint32 xpos, uint32 ypos, PCHANNELSETTINGS settings);
+typedef void (*NAVIGATIONFUNCTION)(void);
 
 //----------------------------------------------------------------------------------------------------------------------------------
 //Structures
@@ -544,9 +689,24 @@ struct tagChannelSettings
   uint32    sample2;
     
   int8 *buttontext;
+
+#if PORT_1014D
+  uint32              infoxpos;
+  uint32              infoypos;
+  PHIGHLIGHTRECTDATA  highlightboxdata;
+  PSHADEDRECTDATA     boxdata;
+  PTEXTDATA           boxtext;
+#endif
 };
 
 //----------------------------------------------------------------------------------------------------------------------------------
+
+struct tagMeasurementInfo
+{
+  PCHANNELSETTINGS channelsettings;
+  uint32           channel;
+  uint32           index;
+};
 
 struct tagScopeSettings
 {
@@ -645,6 +805,17 @@ struct tagScopeSettings
   uint8 source2_measures;
   
   uint8 measuresstate[10][12];  //2-12, new ref1-8
+
+#if PORT_1014D
+  uint8               tracedisplaymode;
+  uint8               selectedcursor;
+  uint8               capturecursorsenable;
+  int16               channel1traceposition;
+  int16               channel2traceposition;
+  int16               capturecursor1position;
+  int16               capturecursor2position;
+  MEASUREMENTINFO     measurementitems[6];
+#endif
 };
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -681,6 +852,7 @@ struct tagThumbnailData
   uint8 triggerverticalposition;
   uint8 triggerchannel;  
   uint8 triggerhorizontalposition;
+  uint8 tracedisplaymode;
   uint8 xydisplaymode;
   uint8 long_mode;
   uint8 disp_xstart;
@@ -730,6 +902,48 @@ struct tagTimeCalcData
   uint8  time_scale;
 };
         
+//----------------------------------------------------------------------------------------------------------------------------------
+
+struct tagShadedRectData
+{
+  uint32 width;
+  uint32 height;
+  uint32 rectcolors[3];
+  uint32 fillcolor;
+};
+
+//----------------------------------------------------------------------------------------------------------------------------------
+
+struct tagTextData
+{
+  int32      xoffset;
+  int32      yoffset;
+  uint32     color;
+  PFONTDATA  font;
+  char      *text;
+};
+
+//----------------------------------------------------------------------------------------------------------------------------------
+
+struct tagHighlightRectData
+{
+  uint32 width;
+  uint32 height;
+  uint32 rectcolors[4];
+  uint32 fillcolor;
+};
+
+//----------------------------------------------------------------------------------------------------------------------------------
+
+struct tagShadedRoundedRectData
+{
+  uint32 width;
+  uint32 height;
+  uint32 radius;
+  uint32 rectcolors[3];
+  uint32 fillcolor;
+};
+
 //----------------------------------------------------------------------------------------------------------------------------------
 //Linker variables
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -871,6 +1085,13 @@ extern uint8 math_sample;
 
 //extern uint8 tmp_ACQ_mode; 
 //extern uint8 long_timebase;
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//UART key controller data (1014D) — used by uart.c
+//----------------------------------------------------------------------------------------------------------------------------------
+
+extern volatile uint8 lastreceivedcommand;         //Command set in the wait for user input function
+extern volatile uint8 toprocesscommand;            //Command set in the get data function which needs to be processed in the main loop
 
 //----------------------------------------------------------------------------------------------------------------------------------
 //Scope data
@@ -1164,6 +1385,7 @@ extern char measurementtext[20];
 //----------------------------------------------------------------------------------------------------------------------------------
 
 extern FONTDATA font_0;
+extern FONTDATA font_1;
 extern FONTDATA font_2;
 extern FONTDATA font_3;
 extern FONTDATA font_4;
@@ -1210,6 +1432,84 @@ extern const uint8 letter_e_icon[];
 extern const uint8 letter_o_icon[];
 extern const uint8 letter_p_icon[];
 extern const uint8 letter_s_icon[];
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//1014D thumbnail icons
+//----------------------------------------------------------------------------------------------------------------------------------
+
+extern const uint16 thumbnail_top_bar_icon[];
+extern const uint16 thumbnail_side_bar_icon[];
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//1014D trace display
+//----------------------------------------------------------------------------------------------------------------------------------
+
+extern uint8 enabletracedisplay;
+extern PCHANNELSETTINGS currentsettings;
+extern double disp_xrange;
+extern int32  trigger_position_min;
+extern int32  trigger_position_max;
+extern const UI_MEASUREMENTFUNCTION measurement_functions[];
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//Calibration text icons (1014D)
+//----------------------------------------------------------------------------------------------------------------------------------
+
+extern const uint8 calibration_start_text_icon[];
+extern const uint8 calibrating_text_icon[];
+extern const uint8 succeed_text_icon[];
+extern const uint8 failed_text_icon[];
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//1014D UI icons (imported from pecostm32)
+//----------------------------------------------------------------------------------------------------------------------------------
+
+extern const uint8 peco_logo_icon[];
+extern const uint8 run_text_icon[];
+extern const uint8 stop_text_icon[];
+extern const uint8 waiting_text_icon[];
+extern const uint8 triggered_text_icon[];
+extern const uint8 trigger_rising_edge_icon[];
+extern const uint8 trigger_falling_edge_icon[];
+extern const uint8 move_speed_icon[];
+extern const uint8 fast_text_icon[];
+extern const uint8 slow_text_icon[];
+extern const uint8 moving_text_icon[];
+extern const uint8 main_menu_icons[11][378];
+extern const uint8 channel_1_text_icon[];
+extern const uint8 channel_2_text_icon[];
+extern const uint8 channel_menu_icon_icons[3][48];
+extern const uint8 channel_menu_label_icons[3][128];
+extern const uint8 channel_menu_1X_icon[];
+extern const uint8 channel_menu_10X_icon[];
+extern const uint8 channel_menu_100X_icon[];
+extern const uint8 channel_menu_AC_icon[];
+extern const uint8 channel_menu_DC_icon[];
+extern const uint8 channel_menu_ON_icon[];
+extern const uint8 channel_menu_OFF_icon[];
+extern const uint8 setting_menu_ON_icon[];
+extern const uint8 setting_menu_OFF_icon[];
+extern const uint16 measurement_digit_icons[10][208];
+extern const uint16 measurement_dot_icon[];
+extern const uint16 measurement_plus_icon[];
+extern const uint16 measurement_minus_icon[];
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//1014D UI state variables
+//----------------------------------------------------------------------------------------------------------------------------------
+
+extern char   globaldisplaytext[50];
+extern int8   speedvalue;
+extern int8   setvalue;
+extern uint8  navigationstate;
+extern uint8  fileviewstate;
+extern uint8  buttondialstate;
+extern uint8  enablesampling;
+extern int8  *sliderdata;
+extern uint8 *onoffdata;
+extern uint8  onoffhighlighteditem;
+extern int16  menuitem;
+extern uint8  measurementslot;
 
 //----------------------------------------------------------------------------------------------------------------------------------
 

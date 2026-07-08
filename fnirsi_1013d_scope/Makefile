@@ -50,8 +50,16 @@ CP=cp
 CCADMIN=CCadmin
 
 # Extract version string once for all targets
-#VERSION_STRING = $(shell grep 'VERSION_STRING' variables.h | sed -E 's/.*"([^"]+)".*/\1/')
-VERSION_STRING := $(shell grep -E '^#define[[:space:]]+VERSION_STRING[[:space:]]+"[^"]+"' variables.h | sed -E 's/.*"([^"]+)".*/\1/')
+# Detect build variant suffix from port_config.h
+VERSION_SUFFIX := $(shell grep -q 'PORT_1014D 1' port_config.h && echo "-1014D" || echo "-1013D")
+VERSION_STRING := v1.00o5$(VERSION_SUFFIX)
+
+# Safety check: confirm the detected variant matches expectations.
+# If PORT_1014D is defined as something other than 0 or 1, or if the
+# grep fails in an unexpected way, VERSION_STRING will be wrong but
+# we can't easily catch that here. The explicit echo below is the
+# authoritative indicator — always check it before flashing.
+$(info [port_config.h variant: $(VERSION_STRING)])
 
 # build
 build: .build-post
@@ -110,13 +118,24 @@ build: .build-post
 #	chmod a+rwx dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin
 
 
-# SD card package: start from the committed bootloader base (SPL + splash loader, no scope), then
-# overlay the freshly-built scope into it at 0x5BC00 so fnirsi_1013d.bin is standalone-bootable
-# and can be dd'd to SD (seek=8). bootloader_base.bin = first 0x5BC00 bytes of Atlan4 v1.00o5's
-# packed image. Without this cp, flashfilepacker has no base and the scope alone is not bootable.
-	cp bootloader_base.bin dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin
-	./flashfilepacker -o dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin -i dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin -l 0x5BC00
-# 	./flashfilepacker -o dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin -i dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin -l 0x8000 0x5BC00
+# SD card package: start from the committed bootloader base (SPL + scope loader), then overlay the
+# freshly-built scope into it so fnirsi_1013d.bin is standalone-bootable and can be dd'd to SD.
+# Two variants:
+#   PORT_1014D (1014D) -> bootloader_1014d_base.bin, overlay at 0x8000
+#   !PORT_1014D (1013D) -> bootloader_base.bin (Atlan4 v1.00o5), overlay at 0x5BC00
+	$(eval BOOTLOADER_BASE:=$(shell grep -q 'PORT_1014D 1' port_config.h && echo bootloader_1014d_base.bin || echo bootloader_base.bin))
+	$(eval BOOTLOADER_OFFSET:=$(shell grep -q 'PORT_1014D 1' port_config.h && echo 0x8000 || echo 0x5BC00))
+	@echo ">>> BOOTLOADER: $(BOOTLOADER_BASE) at offset $(BOOTLOADER_OFFSET)"
+	cp $(BOOTLOADER_BASE) dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin
+	./flashfilepacker -o dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin -i dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin -l $(BOOTLOADER_OFFSET)
+
+# Variant-named copies so you always know which build you're flashing
+	$(eval VARIANT_PREFIX:=$(shell grep -q 'PORT_1014D 1' port_config.h && echo fnirsi_1014d || echo fnirsi_1013d))
+	cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin \
+		dist/Debug/GNU_ARM-Linux/$(VARIANT_PREFIX)_scope.bin
+	cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin \
+		dist/Debug/GNU_ARM-Linux/$(VARIANT_PREFIX).bin
+	@echo ">>> Also: dist/Debug/GNU_ARM-Linux/$(VARIANT_PREFIX)_scope.bin + $(VARIANT_PREFIX).bin"
 
 # Auto load firmware with FEL
 #	sudo ./dist/Debug/GNU_ARM-Linux/sunxi-fel -p write 0x7FFFFFE0 dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin exe 0x80000000

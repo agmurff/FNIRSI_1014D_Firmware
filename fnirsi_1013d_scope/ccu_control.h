@@ -166,6 +166,9 @@
 
 
 //--------------------------------------------------------------------------------------
+//Bus clock gating settings (continued)
+#define CCU_BCRG2_UART1_EN                      0x00200000
+
 //Bus software reset settings
 #define CCU_BSRR0_SPI0_RST                      0x00100000
 
@@ -176,6 +179,9 @@
 #define CCU_BSRR1_DEBE_RST                      0x00001000
 
 #define CCU_BSRR1_USBOTG_EN                     0x01000000
+#define CCU_BSRR1_USBOTG_RST                    0x01000000
+
+#define CCU_BSRR2_UART1_RST                     0x00200000
 
 //--------------------------------------------------------------------------------------
 //SD MMC settings

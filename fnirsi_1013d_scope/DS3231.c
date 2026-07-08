@@ -10,6 +10,7 @@
 //*****************************************************************************
 void readtime(void)                     //Read time for display to main screen
 	{
+#ifndef PORT_1014D
       uint8 buffertimeX[3];
       uint8 jedsec,jedmin,jedhod,dessec,desmin,deshod;
 
@@ -50,11 +51,13 @@ void readtime(void)                     //Read time for display to main screen
       buffertime[6]=dessec+48;
       buffertime[7]=jedsec+48;
       buffertime[8]=0;           //end of string   
+#endif
 	}
 //------------------------------------------------------------------------------
 //******************************************************************************
 void settime (void)                     //Write time to DS3231
 	{
+#ifndef PORT_1014D
       //start register for writing
       uint8 RTC_CMD_REG = 0; //write to sec register
       uint8 buffertimeX[3];
@@ -72,12 +75,14 @@ void settime (void)                     //Write time to DS3231
         tp_i2c_send_data(RTC_DEVICE_ADDR, RTC_CMD_REG, buffertimeX, 3);
       }
       return;
+#endif
 	}
 //****************************************************************
 //*************************  Send DATE  **************************
 //****************************************************************
 void setdate (void)                   //Write date to DS3231
 	{
+#ifndef PORT_1014D
       //start register for writing
       uint8 RTC_CMD_REG = 3;          //write to day register
       uint8 buffertimeX[4];
@@ -98,40 +103,50 @@ void setdate (void)                   //Write date to DS3231
         tp_i2c_send_data(RTC_DEVICE_ADDR, RTC_CMD_REG, buffertimeX, 4);
       }
       return;
+#endif
 	}
 //****************************************************************
 //*************************  Send TIME ***************************
 //****************************************************************
 void hourUp (void)
 	{
+#ifndef PORT_1014D
       if (hour<23) hour++; else hour=0;
       settime();
       return;
+#endif
 	}
 
 void hourDown (void)
 	{
+#ifndef PORT_1014D
 	 if (hour>0) hour--; else hour=23;
      settime();
 	 return;
+#endif
 	}
 //--------------------------------------------------
 void minuteUp (void)
 	{
+#ifndef PORT_1014D
 	 if (minute<59) minute++; else minute=0;
      settime();
 	 return;
+#endif
 	}
 
 void minuteDown (void)
 	{
+#ifndef PORT_1014D
 	 if (minute>0) minute--; else minute=59;
      settime();
 	 return;
+#endif
 	}
 //------------------------------------------------------------------------------
 void dayUp (void)
     {
+#ifndef PORT_1014D
      uint8 maxday = 31;      
      if ((month==4)|(month==6)|(month==9)|(month==11)) maxday=30;
      if (month==2) maxday=29;
@@ -139,9 +154,11 @@ void dayUp (void)
      if (day<maxday) day++; else day=1;
      setdate();
      return;
+#endif
     }
 void dayDown (void)
     {
+#ifndef PORT_1014D
      uint8 maxday = 31;      
      if ((month==4)|(month==6)|(month==9)|(month==11)) maxday=30;
      if (month==2) maxday=29;
@@ -149,37 +166,47 @@ void dayDown (void)
      if (day>1) day--; else day=maxday;
      setdate();
      return;
+#endif
     }
 //--------------------------------------------------
 void monthUp (void)
     {
+#ifndef PORT_1014D
      if (month<12) month++; else month=1;
      setdate();
      return;
+#endif
     }
 void monthDown (void)
     {
+#ifndef PORT_1014D
      if (month>1) month--; else month=12;
      setdate();
      return;
+#endif
     }
 //--------------------------------------------------
 void yearUp (void)
     {
+#ifndef PORT_1014D
     if (year<40) year++; else year=25;
     setdate();
     return;
+#endif
     }
 void yearDown (void)
     {
+#ifndef PORT_1014D
     if (year>25) year--; else year=40;
     setdate();
     return;
+#endif
     }
 //------------------------------------------------------------------------------
 //******************************************************************************
  void modnametoRTC ( int8 *d, int8 *s )
-  {  
+  {
+#ifndef PORT_1014D
    while(*d) d++;
    *d=0;
    d++;
@@ -189,11 +216,13 @@ void yearDown (void)
        d++; 
        s++;
     }
-   *d=0; 
+    *d=0; 
+#endif
   }
- 
+  
   void modnameClearRTC ( int8 *d )
-  {  
+  {
+#ifndef PORT_1014D
    while(*d) d++;
    d++;
     while(*d) 
@@ -201,11 +230,13 @@ void yearDown (void)
       *d = 0;      //insert 0 null
       d++;     
     }
+#endif
   }
 //------------------------------------------------------------------------------
 //****************************************************************************** 
 void readnameRTC(void)                  //Read time for use time stamp in file
 	{
+#ifndef PORT_1014D
 	uint8 buffertimeX[7];
     uint8 jedsec,jedmin,jedhod,dessec,desmin,deshod,dated,datej,monthd,monthj,yeard,yearj;
 
@@ -252,11 +283,13 @@ void readnameRTC(void)                  //Read time for use time stamp in file
     filenameRTC[12]=jedsec+48;
         
     filenameRTC[13]=0;           //end of string 
+#endif
 	}
 //;-----------------------------------------------------------------------------
 //******************************************************************************
 void decodethumbnailfilename (int8 *s)
   {
+#ifndef PORT_1014D
   uint8 x=0;
   uint8 dx=0;
    
@@ -301,11 +334,13 @@ void decodethumbnailfilename (int8 *s)
     dx++;
     }  
   filenameRTC[x++]=0;
+#endif
   }
 //;-----------------------------------------------------------------------------
 //******************************************************************************
 DWORD get_fattime (void)
   {
+#ifndef PORT_1014D
     uint8   tm_sec = 0;
     uint8   tmp;
     uint8   bufferfattime[7];
@@ -340,12 +375,16 @@ DWORD get_fattime (void)
            (DWORD)(hour) << 11 |
            (DWORD)minute << 5 |
            (DWORD)tm_sec >> 1;
+#else
+    return 0;
+#endif
   }
 
 //------------------------------------------------------------------------------
 //******************************************************************************
 uint8 readtemperature(void)     //Read temperature for scope_diagnostic_screen
   {
+#ifndef PORT_1014D
     if(onoffRTC)
     {
       uint8 buffer[2];
@@ -356,6 +395,9 @@ uint8 readtemperature(void)     //Read temperature for scope_diagnostic_screen
       return tMSB;
     }
     return 99;
+#else
+    return 99;
+#endif
   }
 //;-----------------------------------------------------------------------------
 //******************************************************************************

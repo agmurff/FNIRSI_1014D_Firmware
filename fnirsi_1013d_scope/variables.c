@@ -5,6 +5,35 @@
 //#include <stdint.h>
 
 //----------------------------------------------------------------------------------------------------------------------------------
+//UART key controller data (1014D)
+//----------------------------------------------------------------------------------------------------------------------------------
+
+volatile uint8 lastreceivedcommand = 0;
+volatile uint8 toprocesscommand = 0;
+uint8 enabletracedisplay = 1;
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//1014D UI state variables
+//----------------------------------------------------------------------------------------------------------------------------------
+
+char   globaldisplaytext[50];
+int8   speedvalue = 10;
+int8   setvalue = 1;
+uint8  navigationstate = 0;
+uint8  fileviewstate = 0;
+uint8  buttondialstate = 0;
+uint8  enablesampling = 1;
+int8  *sliderdata = 0;
+uint8 *onoffdata = 0;
+uint8  onoffhighlighteditem = 0;
+int16  menuitem = 0;
+uint8  measurementslot = 0;
+PCHANNELSETTINGS currentsettings = 0;
+double disp_xrange;
+int32  trigger_position_min;
+int32  trigger_position_max;
+
+//----------------------------------------------------------------------------------------------------------------------------------
 //Timer data
 //----------------------------------------------------------------------------------------------------------------------------------
 

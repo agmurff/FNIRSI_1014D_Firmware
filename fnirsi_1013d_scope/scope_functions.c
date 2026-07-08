@@ -18,6 +18,9 @@
 
 #include "sin_cos_math.h"
 #include "ref_and_math.h"
+#if PORT_1014D
+#include "menu_1014d.h"
+#endif
 /*
 //sinx
 #include <stdio.h>
@@ -27,6 +30,16 @@
 */
 #include <string.h>
 #include <math.h>
+
+#if PORT_1014D
+//1014D channel panel box structs from menu_1014d.c
+extern SHADEDRECTDATA channel_1_box;
+extern SHADEDRECTDATA channel_2_box;
+extern TEXTDATA channel_1_box_text;
+extern TEXTDATA channel_2_box_text;
+extern HIGHLIGHTRECTDATA channel_1_highlight_box;
+extern HIGHLIGHTRECTDATA channel_2_highlight_box;
+#endif
 //----------------------------------------------------------------------------------------------------------------------------------
 
 //void scope_adjust_timebase(void)
@@ -2545,11 +2558,22 @@ void scope_do_auto_setup_new(void)
 
 //----------------------------------------------------------------------------------------------------------------------------------
 
+void scope_calculate_sample_range_properties(void)
+{
+  disp_xpos_per_sample = (50.0 * frequency_per_div[scopesettings.timeperdiv]) / sample_rate[scopesettings.samplerate];
+  disp_sample_step = 1.0 / disp_xpos_per_sample;
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+
 void scope_display_trace_data(void)
 {
   PTHUMBNAILDATA thumbnaildata; 
   //thumbnaildata = &viewthumbnaildata[0]; 
   thumbnaildata = &viewthumbnaildata[viewcurrentindex];
+
+  //Don't draw if a menu is active
+  if(!enabletracedisplay) return;
   
   //See if it is possible to rework this to fixed point. A 32 bit mantissa is not accurate enough though
 
@@ -2671,8 +2695,12 @@ void scope_display_trace_data(void)
   //Check if not in waveform view mode (Scope mode) with grid disabled
   if((!scopesettings.waveviewmode) || (scopesettings.gridenable))
   {
+#if PORT_1014D
+    ui_draw_grid();
+#else
     //Draw the grid lines and dots based on the grid brightness setting
     scope_draw_grid();
+#endif
   }
 
   //Check if scope is in normal display mode
@@ -2818,6 +2846,7 @@ void scope_display_trace_data(void)
   }
 
   //Draw the cursors with their measurement displays
+#if !PORT_1014D
   scope_draw_time_cursors();
   scope_draw_volt_cursors();
   scope_display_cursor_measurements();
@@ -2827,6 +2856,7 @@ void scope_display_trace_data(void)
 
   //Show the enabled measurements on the screen
   scope_display_measurements();  
+#endif
 
   //Check if in waveform view
   if(scopesettings.waveviewmode)
@@ -2845,6 +2875,14 @@ void scope_display_trace_data(void)
   }
   
   //Copy it to the actual screen buffer
+#if PORT_1014D
+  //Redraw 1014D chrome that lies inside the cleared trace rect
+  ui_display_trigger_settings();
+  ui_display_waiting_triggered_text(
+      scopesettings.runstate == RUN_STATE_RUNNING ? 0 : 1);
+  ui_draw_pointers();
+  ui_display_cursors();
+#endif
   display_set_source_buffer(displaybuffertmp);//1
   display_set_screen_buffer((uint16 *)maindisplaybuffer);
   display_copy_rect_to_screen(2, 48, 728, 432);
@@ -6435,6 +6473,14 @@ void scope_load_configuration_data(void)
   scopesettings.channel1.touchedcolor = CH1_TOUCHED_COLOR;
   scopesettings.channel1.buttontext   = "CH1";
 
+#if PORT_1014D
+  scopesettings.channel1.infoxpos         = 517;
+  scopesettings.channel1.infoypos         = 6;
+  scopesettings.channel1.highlightboxdata = &channel_1_highlight_box;
+  scopesettings.channel1.boxdata          = &channel_1_box;
+  scopesettings.channel1.boxtext          = &channel_1_box_text;
+#endif
+
   //Set the trace and display buffer pointers for channel 1
   scopesettings.channel1.tracebuffer      = (uint8 *)channel1tracebuffer;
   scopesettings.channel1.tracepoints      = channel1pointsbuffer;
@@ -6455,6 +6501,14 @@ void scope_load_configuration_data(void)
   scopesettings.channel2.voltdivypos  = CH2_VOLT_DIV_MENU_YPOS;
   scopesettings.channel2.touchedcolor = CH2_TOUCHED_COLOR;
   scopesettings.channel2.buttontext   = "CH2";
+
+#if PORT_1014D
+  scopesettings.channel2.infoxpos         = 622;
+  scopesettings.channel2.infoypos         = 6;
+  scopesettings.channel2.highlightboxdata = &channel_2_highlight_box;
+  scopesettings.channel2.boxdata          = &channel_2_box;
+  scopesettings.channel2.boxtext          = &channel_2_box_text;
+#endif
 
   //Set the trace and display buffer pointers for channel 2
   scopesettings.channel2.tracebuffer      = (uint8 *)channel2tracebuffer;

@@ -12,17 +12,20 @@
 
 void battery_check_init(void)
 {
+#ifndef PORT_1014D
   //Set KEY ADC to this fixed value for now. Raises level B to 1.8V and enables the conversions
   *KEY_ADC_CFG_REG = 0x010000159;
   
   //Set port pin E12 as input
   *FPGA_CTRL_CFG_REG &= 0xFFF0FFFF;
+#endif
 }
 
 //--------------------------------------------------------------------------------------
 
 void battery_check_status(void)
 {
+#ifndef PORT_1014D
   register int32 chargelevel=0;
   int32 prev_chargelevel; 
   
@@ -69,12 +72,14 @@ void battery_check_status(void)
   
   //Display the level on the screen
   scope_battery_status();
+#endif
 }
 
 //--------------------------------------------------------------------------------------
 
 void power_interrupt_init(void)
 {
+#ifndef PORT_1014D
   //The original code uses functions for these settings
   //Set port pin E11 as interrupt input
   *FPGA_CTRL_CFG_REG = (*FPGA_CTRL_CFG_REG & 0xFFFF0FFF) | 0x00006000;
@@ -87,12 +92,14 @@ void power_interrupt_init(void)
   
   //Link the handler to the interrupt handling
   setup_interrupt(PORTE_EINT_IRQ, power_interrupt_handler, 3);
+#endif
 }
 
 //--------------------------------------------------------------------------------------
 
 void power_interrupt_handler(void)
 {
+#ifndef PORT_1014D
   //Need to check if it is ok to save settings.
   //Only when in normal view mode, so need a flag to signal picture or waveform viewing
   //And a flag to signal actual setting has been changed???
@@ -108,6 +115,7 @@ void power_interrupt_handler(void)
   
   //Power has been turned off and settings are saved when needed so hang here until complete shutdown
   while(1);
+#endif
 }
 
 //--------------------------------------------------------------------------------------

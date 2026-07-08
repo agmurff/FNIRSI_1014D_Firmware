@@ -46,6 +46,7 @@ OBJECTFILES= \
 	${OBJECTDIR}/ffunicode.o \
 	${OBJECTDIR}/fnirsi_1013d_scope.o \
 	${OBJECTDIR}/font_0.o \
+	${OBJECTDIR}/font_1.o \
 	${OBJECTDIR}/font_2.o \
 	${OBJECTDIR}/font_3.o \
 	${OBJECTDIR}/font_4.o \
@@ -61,15 +62,18 @@ OBJECTFILES= \
 	${OBJECTDIR}/memset.o \
 	${OBJECTDIR}/strlen.o \
 	${OBJECTDIR}/menu.o \
+	${OBJECTDIR}/menu_1014d.o \
 	${OBJECTDIR}/power_and_battery.o \
 	${OBJECTDIR}/ref_and_math.o \
 	${OBJECTDIR}/scope_functions.o \
+	${OBJECTDIR}/sm_1014d.o \
 	${OBJECTDIR}/sd_card_interface.o \
 	${OBJECTDIR}/sin_cos_math.o \
 	${OBJECTDIR}/spi_control.o \
 	${OBJECTDIR}/start.o \
 	${OBJECTDIR}/statemachine.o \
-	${OBJECTDIR}/port_a.o \
+	${OBJECTDIR}/clock_synthesizer.o \
+	${OBJECTDIR}/uart.o \
 	${OBJECTDIR}/test.o \
 	${OBJECTDIR}/timer.o \
 	${OBJECTDIR}/touchpanel.o \
@@ -78,7 +82,7 @@ OBJECTFILES= \
 
 
 # C Compiler Flags
-CFLAGS=-Wall -Wno-write-strings -Wno-char-subscripts -fno-stack-protector -DNO_STDLIB=1 -mcpu='arm926ej-s' -O3 -mfloat-abi=soft -Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=int-conversion
+CFLAGS=-Wall -Wno-write-strings -Wno-char-subscripts -fno-stack-protector -DNO_STDLIB=1 -mcpu='arm926ej-s' -O2 -mfloat-abi=soft -Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=int-conversion -fcommon
 
 # CC Compiler Flags
 CCFLAGS=
@@ -156,6 +160,11 @@ ${OBJECTDIR}/font_0.o: font_0.c
 	${RM} "$@.d"
 	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/font_0.o font_0.c
 
+${OBJECTDIR}/font_1.o: font_1.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/font_1.o font_1.c
+
 ${OBJECTDIR}/font_2.o: font_2.c
 	${MKDIR} -p ${OBJECTDIR}
 	${RM} "$@.d"
@@ -226,6 +235,11 @@ ${OBJECTDIR}/menu.o: menu.c
 	${RM} "$@.d"
 	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/menu.o menu.c
 
+${OBJECTDIR}/menu_1014d.o: menu_1014d.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/menu_1014d.o menu_1014d.c
+
 ${OBJECTDIR}/power_and_battery.o: power_and_battery.c
 	${MKDIR} -p ${OBJECTDIR}
 	${RM} "$@.d"
@@ -240,6 +254,11 @@ ${OBJECTDIR}/scope_functions.o: scope_functions.c
 	${MKDIR} -p ${OBJECTDIR}
 	${RM} "$@.d"
 	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/scope_functions.o scope_functions.c
+
+${OBJECTDIR}/sm_1014d.o: sm_1014d.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/sm_1014d.o sm_1014d.c
 
 ${OBJECTDIR}/sd_card_interface.o: sd_card_interface.c
 	${MKDIR} -p ${OBJECTDIR}
@@ -275,10 +294,15 @@ ${OBJECTDIR}/timer.o: timer.c
 	${RM} "$@.d"
 	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/timer.o timer.c
 
-${OBJECTDIR}/port_a.o: port_a.c
+${OBJECTDIR}/clock_synthesizer.o: clock_synthesizer.c
 	${MKDIR} -p ${OBJECTDIR}
 	${RM} "$@.d"
-	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/port_a.o port_a.c
+	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/clock_synthesizer.o clock_synthesizer.c
+
+${OBJECTDIR}/uart.o: uart.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/uart.o uart.c
 
 ${OBJECTDIR}/touchpanel.o: touchpanel.c
 	${MKDIR} -p ${OBJECTDIR}
