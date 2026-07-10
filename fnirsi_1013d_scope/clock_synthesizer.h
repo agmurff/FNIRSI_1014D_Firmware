@@ -36,6 +36,20 @@
 
 void clock_synthesizer_setup(void);
 
+// Set the sampling clock (CLK1) frequency by writing the MS1_P1B divider value.
+// CLK1 = 800 MHz / (2*p1b + 4):
+//   0x06 = 50 MHz (stock)
+//   0x05 = 57.1 MHz
+//   0x04 = 66.7 MHz
+//   0x03 = 80 MHz
+// Lower values give higher frequencies. After call, the actual achieved rate
+// for a given samplerate index scales proportionally (sampling_clock_scale).
+void clock_synthesizer_set_sampling_clock(uint8 ms1_p1b);
+
+// Apply p1b + update sampling_clock_scale (and the globals).
+// Safe to call after initial setup.
+double clock_synthesizer_apply_sampling_clock(uint8 p1b);
+
 //----------------------------------------------------------------------------------------------------------------------------------
 //I2C functions
 

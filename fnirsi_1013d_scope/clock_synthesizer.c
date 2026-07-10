@@ -13,6 +13,7 @@
 #include "gpio_control.h"
 #include "ccu_control.h"
 #include "clock_synthesizer.h"
+#include "variables.h"   // for sampling_clock_p1b / sampling_clock_scale globals
 
 //----------------------------------------------------------------------------------------------------------------------------------
 //ClockGen could use register file from ClockBuilder Pro, but currently there are only few registers set, so setting them separately
@@ -59,21 +60,71 @@ void clock_synthesizer_setup(void)
   // 0x2C 44 R0_DIV[2:0] -- MS0_DIVBY4 for 200MHz clock
   i2c_send_data(CS_MS0_DIV, 0x0C);
 
-  // MultiSynth1 -- 50MHz original
+  // MultiSynth1 -- use configured value (default stock 50MHz)
   // 0x33 51 MS1_P3[7:0] -- No zero denominator
   i2c_send_data(CS_MS1_P3, 0x01);
 
   // 0x35 53 MS1_P1[15:8] -- Integer part * 128 - 4
-//  0x05; // 66MHz
-//  0x04; // 75MHz
-//  0x03; // 80MHz
-  i2c_send_data(CS_MS1_P1B, 0x06);   // 50MHz
+  // sampling_clock_p1b is set before this call (or defaults below)
+  {
+    uint8 p1b = sampling_clock_p1b;
+    if (p1b == 0) p1b = 0x06;   // default 50 MHz if not yet configured
+    i2c_send_data(CS_MS1_P1B, p1b);
+  }
 
   // 0xB1 177 PLL_RST
   i2c_send_data(CS_PLL_RST,0xAC);
 
   // Enable clock outputs
   i2c_send_data(CS_CLK_DIS, 0xFC);
+}
+
+// Set only the sampling clock (CLK1) rate. Can be called later to overclock.
+// Reprograms the relevant multisynth and does a PLL reset.
+void clock_synthesizer_set_sampling_clock(uint8 ms1_p1b)
+{
+  // Make sure the pins are configured (in case called later)
+  *PORTA_DATA_REG |= 0x00000003;
+  *PORTA_CFG0_REG &= 0xFFFFFF11;
+
+  // Power down CLK1 temporarily
+  i2c_send_data(CS_CLK1_CTRL, 0x80);
+
+  // Set the divider for CLK1 (MS1_P1B controls the rate from PLLA)
+  i2c_send_data(CS_MS1_P3, 0x01);
+  i2c_send_data(CS_MS1_P1B, ms1_p1b);
+
+  // Power CLK1 back up: PLLA | CLK1_SRC=MultiSynth1 | CLK1_IDRV=8mA (same as setup).
+  // Without this the FPGA loses its reference clock permanently (backlight PWM strobes,
+  // sampling never completes).
+  i2c_send_data(CS_CLK1_CTRL, 0x0F);
+
+  // PLL reset to apply change
+  i2c_send_data(CS_PLL_RST, 0xAC);
+
+  // Re-enable clocks (leave CLK0/2 as they were)
+  i2c_send_data(CS_CLK_DIS, 0xFC);
+}
+
+// Apply a sampling clock choice and update the global scale factor used by math.
+// Returns the exact scale (actual / 50 MHz).
+//
+// Only MS1_P1[15:8] is written (P1[17:16] and P1[7:0] stay 0), so P1 = p1b * 256 and the
+// MultiSynth integer divider is (P1 + 512) / 128 = 2*p1b + 4. With PLLA at 800 MHz:
+//   CLK1 = 800 / (2*p1b + 4)  =>  scale = CLK1 / 50 = 8 / (p1b + 2)
+//   0x06 -> 50 MHz (1.0)   0x05 -> 57.1 MHz (1.143)
+//   0x04 -> 66.7 MHz (1.333)   0x03 -> 80 MHz (1.6)
+// (Historical comments claiming 0x05=66 / 0x04=75 MHz were wrong.)
+double clock_synthesizer_apply_sampling_clock(uint8 p1b)
+{
+  double scale = 8.0 / (double)(p1b + 2);
+
+  sampling_clock_p1b = p1b;
+  sampling_clock_scale = scale;
+
+  clock_synthesizer_set_sampling_clock(p1b);
+
+  return scale;
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------

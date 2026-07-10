@@ -13,9 +13,13 @@
 #include "ff.h"
 #include "DS3231.h"
 #include "port_config.h"
+#if PORT_1014D
+#include "menu_1014d.h"
+#endif
 
 #include "usb_interface.h"
 #include "PC_interface.h"
+#include "cdc_class.h"
 #include "variables.h"
 #include "generator.h"
 
@@ -35,6 +39,11 @@ void scope_setup_display_lib(void)
 
 void scope_setup_main_screen(void)
 {
+#if PORT_1014D
+  //Shared-core callers get the P14 UI main screen instead of the touch UI one
+  ui_setup_main_screen();
+  return;
+#endif
   //Prepare the screen in a working buffer
 //  display_set_screen_buffer(displaybuffer1);
 
@@ -565,7 +574,11 @@ void scope_control_button(int mode)
 //----------------------------------------------------------------------------------------------------------------------------------
 
 void scope_run_stop_button(int mode)
-{ 
+{
+#if PORT_1014D
+  //The P14 UI has no touch run/stop button
+  return;
+#endif
   //Check if inactive or active mode
   if(mode == 0)
   {
@@ -1847,6 +1860,11 @@ void scope_set_maxlight(int mode)
 
 void scope_run_stop_text(void)
 {
+#if PORT_1014D
+  //Route shared-core chrome to the P14 UI equivalent
+  ui_display_run_stop_text();
+  return;
+#endif
   //Check if run or stop mode
   if(scopesettings.runstate)//ok
   {
@@ -1888,6 +1906,11 @@ void scope_run_stop_text(void)
 
 void scope_channel_settings(PCHANNELSETTINGS settings, int mode)
 {
+#if PORT_1014D
+  //Route shared-core chrome to the P14 UI equivalent
+  ui_display_channel_settings(settings);
+  return;
+#endif
   int8 **vdtext = 0;
 
   //Clear the area first
@@ -2055,6 +2078,11 @@ void scope_channel_settings(PCHANNELSETTINGS settings, int mode)
 
 void scope_acqusition_settings(int mode)
 {
+#if PORT_1014D
+  //Route shared-core chrome to the P14 UI equivalent
+  ui_display_time_per_division();
+  return;
+#endif
   uint8 a = 0;
   //Clear the area first
   display_set_fg_color(BLACK_COLOR);
@@ -2300,6 +2328,11 @@ void scope_move_speed(int mode)
 
 void scope_trigger_settings(int mode)
 {
+#if PORT_1014D
+  //Route shared-core chrome to the P14 UI equivalent
+  ui_display_trigger_settings();
+  return;
+#endif
   int8 *modetext = 0;
 
   //Clear the area first light gray

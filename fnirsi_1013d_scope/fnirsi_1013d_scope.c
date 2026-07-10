@@ -77,6 +77,10 @@ int main(void)
 #if PORT_1014D
   //1014D: program the external Si5351 clock generator (PA0/PA1) BEFORE the FPGA, so the FPGA/ADC
   //has its sample clock and the FPGA-driven backlight PWM is stable (otherwise the display flashes).
+  if (sampling_clock_p1b == 0)
+    sampling_clock_p1b = 0x06;     // stock 50 MHz default
+  if (sampling_clock_scale == 0.0)
+    sampling_clock_scale = 1.0;
   clock_synthesizer_setup();
 #endif
 
@@ -269,6 +273,7 @@ int main(void)
   havetouch = 0;
   
   scope_preset_values();
+  scope_calculate_sample_range_properties();  // Ensure disp_xrange + trigger_position_min/max are valid for the loaded timebase before sm_init/rotary input. Fixes initial "stuck at extreme offset" on 1014D (min/max were zero until first timebase change).
   DBG_STAGE(3);   //scope_preset_values done
 
   ini_SysParam();
@@ -434,7 +439,7 @@ int main(void)
     DBG_STAGE(9);   //trace pipeline done, about to poll keys
 #if PORT_1014D
     sm_handle_user_input();
-    if(enabletracedisplay)
+    if(enabletracedisplay || ui_menu_composite_active())
     {
         scope_display_trace_data();
     }

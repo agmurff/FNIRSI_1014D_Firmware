@@ -21,6 +21,11 @@
 #if PORT_1014D
 #include "menu_1014d.h"
 #endif
+
+// Clock overclock support (1014D only)
+#if PORT_1014D
+extern double clock_synthesizer_apply_sampling_clock(uint8 p1b);
+#endif
 /*
 //sinx
 #include <stdio.h>
@@ -282,34 +287,45 @@ void scope_adjust_timebase_and_voltdiv (void)
   } 
   else //if((scopesettings.runstate))//1-run
   {
+#if !PORT_1014D
     if((scopesettings.runstate)||(!scopesettings.waveviewmode) )//ok 1-run  1 - wavwe mode opravit?
-    { 
+    {
         memset(channel1tracebuffer, 128, sizeof(channel1tracebuffer));
         memset(channel2tracebuffer, 128, sizeof(channel2tracebuffer));
     }
-    
+
   scope_display_trace_data();
+#else
+    //1014D: keep the old samples on screen until fresh data arrives. Clearing the buffers to
+    //128 here painted a false flat trace across the middle on every time base change.
+#endif
   }
     
+#if !PORT_1014D
     //Check if not in waveform view mode (Scope mode) with grid disabled
     if((!scopesettings.waveviewmode) || (scopesettings.gridenable))
     {
         //Draw the grid lines and dots based on the grid brightness setting
         scope_draw_grid();
     }
-    
+
     //Draw the cursors with their measurement displays
     scope_draw_time_cursors();
     scope_draw_volt_cursors();
     scope_display_cursor_measurements();
-    
+
     //Draw the signal center, trigger level and trigger position pointers
     scope_draw_pointers();
-     
+
     //Copy it to the actual screen buffer
     display_set_source_buffer(displaybuffertmp);//1
     display_set_screen_buffer((uint16 *)maindisplaybuffer);
-    display_copy_rect_to_screen(0, 48, 730, 432);  //44 728 434  
+    display_copy_rect_to_screen(0, 48, 730, 432);  //44 728 434
+#else
+    //1014D: the per frame display path redraws grid, chrome and traces with the P14 UI
+    //functions. Drawing and blitting the 1013D chrome here flashed the touch UI pointers
+    //and bottom position scroller over the screen on every time base change.
+#endif
 }
   
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -953,6 +969,27 @@ void scope_process_trigger(uint32 count)
 
 //----------------------------------------------------------------------------------------------------------------------------------
 
+// Prototype for the internal auto clock optimization (1014D only)
+#if PORT_1014D
+uint8 auto_detect_max_clean_sampling_clock(void);
+
+//Per volt/div ADC2-ADC1 raw average differences from the last calibration's high rate
+//re-measure, per channel (row 0 = CH1). Filled in scope_do_channel_calibration and shown
+//by the baseline calibration diagnostic to decide whether the interleave mismatch is
+//volt/div dependent (per-v/div comp candidate)
+static int32 caldbg_hdiff[2][6];
+
+//Residual interleave artifact (averaged score, worst single pair excursion) measured
+//right after the new compensation is applied. Near the noise floor (score ~0-2) means
+//the offset comp is doing its job and remaining visible fuzz is noise; clearly larger
+//means a structural error the offset comp cannot represent
+static uint32 caldbg_res[2];
+static uint32 caldbg_peak[2];
+
+static uint32 measure_high_rate_artifact(PCHANNELSETTINGS settings, uint32 *max_pair_out);
+void uart1_wait_for_user_input(void);
+#endif
+
 uint32 scope_do_baseline_calibration(void)
 {
   uint32 flag = 1;
@@ -983,7 +1020,12 @@ uint32 scope_do_baseline_calibration(void)
   //Send the command for setting the trigger level to the FPGA
   fpga_write_cmd(0x17);
   fpga_write_byte(0);
-  
+
+  // Note: the sampling clock is NOT changed here. Calibration (DC offsets and the
+  // ADC1/ADC2 interleave compensation) runs at the currently selected Si5351 clock, so
+  // its results match the conditions the scope will actually run at. The clock search
+  // is a separate action: Factory settings -> Sampling clock -> Auto search.
+
   //Sample rate ant time per div settings backup
   //backup_samplerate = scopesettings.samplerate;
   //backup_timeperdiv = scopesettings.timeperdiv;
@@ -1113,7 +1155,40 @@ uint32 scope_do_baseline_calibration(void)
   //Display the channel menu select buttons and their settings
   scope_channel_settings(&scopesettings.channel1, 0);
   scope_channel_settings(&scopesettings.channel2, 0);
- 
+
+#if PORT_1014D
+  // Show the measured interleave compensation values, the per volt/div ADC2-ADC1
+  // differences they were averaged from (varying d values would mean the mismatch is
+  // volt/div dependent), and the residual artifact score/peak measured with the new
+  // compensation active (r near 0-2 = comp working, remaining fuzz is noise).
+  // Wait for a key so the numbers can actually be read (a fixed delay was too short).
+  display_set_fg_color(DARKGREY_COLOR);
+  display_fill_rect(380, 268, 320, 40);
+  display_set_fg_color(COLOR_WHITE);
+  display_set_font(&font_1);
+  display_text(384, 270, "cal data - press any key");
+  display_text(384, 282, "C1:");
+  display_decimal(410, 282, scopesettings.channel1.adc1compensation);
+  display_decimal(440, 282, scopesettings.channel1.adc2compensation);
+  display_text(384, 293, "C2:");
+  display_decimal(410, 293, scopesettings.channel2.adc1compensation);
+  display_decimal(440, 293, scopesettings.channel2.adc2compensation);
+  display_text(470, 282, "d:");
+  display_text(470, 293, "d:");
+  for(int i = 0; i < 6; i++)
+  {
+    display_decimal(488 + (i * 28), 282, caldbg_hdiff[0][i]);
+    display_decimal(488 + (i * 28), 293, caldbg_hdiff[1][i]);
+  }
+  display_text(652, 282, "r:");
+  display_decimal(664, 282, caldbg_res[0]);
+  display_decimal(684, 282, caldbg_peak[0]);
+  display_text(652, 293, "r:");
+  display_decimal(664, 293, caldbg_res[1]);
+  display_decimal(684, 293, caldbg_peak[1]);
+  uart1_wait_for_user_input();
+#endif
+
   return(flag);
 }
 
@@ -1279,6 +1354,74 @@ uint32 scope_do_channel_calibration(void)
     timer0_delay(1500);
   }
 
+#if PORT_1014D
+  // Re-measure the ADC1 vs ADC2 difference at high rate (where dual-ADC interleave
+  // actually happens) so the compensation can target the static sawtooth.
+  // This gives a "calibration point" appropriate for the <=200ns/div regime.
+  // The earlier measurement (at 2MSa/s) is still used for the center/FAIL checks above.
+  {
+    int32 hsum = 0;
+    // Use a fast timebase that exercises 200MSa/s interleaving
+    uint8 saved_tp = scopesettings.timeperdiv;
+    uint8 saved_sr = scopesettings.samplerate;
+    scopesettings.timeperdiv = 32;  // ~20-50ns range, rate 0
+    scopesettings.samplerate = time_per_div_sample_rate[scopesettings.timeperdiv];
+    fpga_set_sample_rate(scopesettings.samplerate);
+    fpga_set_time_base(scopesettings.timeperdiv);
+
+    for(voltperdiv=0;voltperdiv<6;voltperdiv++)
+    {
+      calibrationsettings.samplevoltperdiv = voltperdiv;
+      fpga_set_channel_voltperdiv(&calibrationsettings);
+
+      // Reuse a reasonable center offset from the prior DC cal for this v/div
+      calibrationsettings.dc_calibration_offset[voltperdiv] =
+        (samplerateaverage[0][voltperdiv] + samplerateaverage[1][voltperdiv]) / 2;
+      fpga_set_channel_offset(&calibrationsettings);
+
+      timer0_delay(40);
+
+      fpga_do_conversion();
+      while (fpga_done_conversion() == 0);
+
+      fpga_read_sample_data(&calibrationsettings, 100);
+
+      {
+        int32 hd = (calibrationsettings.adc2rawaverage - calibrationsettings.adc1rawaverage);
+
+        hsum += hd;
+
+        //Keep the per volt/div value for the calibration diagnostic display
+        caldbg_hdiff[(calibrationsettings.adc1command == 0x20) ? 0 : 1][voltperdiv] = hd;
+      }
+    }
+    hsum /= 6;
+
+    // Use the high-rate diff for the actual compensation values (static sawtooth correction).
+    calibrationsettings.adc1compensation = hsum / 2;
+    calibrationsettings.adc2compensation = -1 * (hsum - calibrationsettings.adc1compensation);
+
+    // Measure the residual artifact with the new compensation active (still at rate 0, so
+    // fpga_read_sample_data applies it) for the calibration diagnostic display
+    {
+      int chidx = (calibrationsettings.adc1command == 0x20) ? 0 : 1;
+
+      fpga_do_conversion();
+      while (fpga_done_conversion() == 0);
+      fpga_read_sample_data(&calibrationsettings, 100);
+
+      caldbg_res[chidx] = measure_high_rate_artifact(&calibrationsettings, &caldbg_peak[chidx]);
+    }
+
+    // Restore for the DC offset adjust below (it walks all v/div using the last comp)
+    scopesettings.timeperdiv = saved_tp;
+    scopesettings.samplerate = saved_sr;
+    // Restore FPGA acquisition rate config so we don't leave it at the test rate
+    fpga_set_sample_rate(saved_sr);
+    fpga_set_time_base(saved_tp);
+  }
+#endif
+
   //Adjust the center point DC offsets with the found compensation values
   for(voltperdiv=0;voltperdiv<6;voltperdiv++)
   {
@@ -1289,6 +1432,375 @@ uint32 scope_do_channel_calibration(void)
   //Return the result of the tests. ZERO (True) if all tests passed
   return(flag);
 }
+
+#if PORT_1014D
+//----------------------------------------------------------------------------------------------------------------------------------
+// Overclock / sawtooth related helpers (1014D Si5351 sampling clock only)
+//----------------------------------------------------------------------------------------------------------------------------------
+
+// Forward decl for status helper (defined below)
+static void show_clock_test_status(uint8 p1b, uint32 score, uint32 peak, uint8 best_p1b_so_far, int32 raw_avg, int y);
+
+// Very rough metric of "interleave artifact + noise" on a channel buffer.
+// Lower is better. Separates the two ADCs (even/odd) and looks at their mismatch + overall variance.
+// Call after a fpga_read_sample_data on a "quiet" input (shorted or open BNC recommended).
+// max_pair_out (if non-NULL) receives the LARGEST single even/odd pair difference seen:
+// the averaged score dilutes a rare glitched sample into nothing, but a marginal clock
+// shows up as occasional large single-sample excursions, which this peak value catches.
+static uint32 measure_high_rate_artifact(PCHANNELSETTINGS settings, uint32 *max_pair_out)
+{
+  uint8 *buf = settings->tracebuffer;
+  uint32 n = scopesettings.nofsamples;
+  if (n > 1000) n = 1000;            // keep it fast
+  if (n < 100) n = 200;
+
+  int32 sum_diff = 0;
+  int32 sum_var  = 0;
+  int32 sum = 0;
+  int32 prev = 128;
+  int32 max_run = 0;
+  int32 run = 1;
+  int32 last = buf[0];
+  int32 max_pair = 0;
+
+  for (uint32 i = 0; i < n; i += 2)
+  {
+    int32 a = buf[i];
+    int32 b = buf[i+1];
+    int32 d = a - b;
+    if (d < 0) d = -d;
+    sum_diff += d;
+    if (d > max_pair) max_pair = d;
+
+    int32 v = a - prev;
+    if (v < 0) v = -v;
+    sum_var += v;
+    prev = a;
+    sum += a;
+
+    // detect long runs of same value (stuck data = FPGA not keeping up or bad clock)
+    if (a == last) {
+      run++;
+      if (run > max_run) max_run = run;
+    } else {
+      run = 1;
+      last = a;
+    }
+  }
+
+  // Mean of one substream
+  int32 mean = sum / (n/2 + 1);
+
+  // Combine mismatch + variance + penalties for bad mean or long runs
+  uint32 base = (sum_diff * 4 + sum_var) / (n / 2 + 1);
+
+  // Penalty if mean far from midscale (bad capture / timing)
+  if (mean < 100 || mean > 156) base += 500;
+
+  // Penalty for stuck runs (FPGA or ADC not responding properly)
+  if (max_run > 20) base += (max_run - 20) * 50;
+
+  if (max_pair_out) *max_pair_out = (uint32)max_pair;
+
+  return base;
+}
+
+// Try a list of sampling clocks and pick the highest one that doesn't make
+// the interleave artifact much worse than the stock 50 MHz case.
+// Returns the best p1b value and applies it + updates scale.
+uint8 auto_detect_max_clean_sampling_clock(void)
+{
+  // Candidates in ascending speed. Stock (50 MHz) MUST be first: it establishes the
+  // reference score every faster candidate is compared against.
+  static const uint8 candidates[] = { 0x06, 0x05, 0x04, 0x03 };
+  const int nc = sizeof(candidates) / sizeof(candidates[0]);
+
+  uint8 best_p1b = 0x06;
+  uint32 best_score = 0xFFFFFFFF;
+  uint32 stock_score = 0xFFFFFFFF;
+  uint32 stock_peak = 0;
+
+  // Record results for a final visible summary (helps when live updates are overwritten)
+  uint8 tried_p1b[8];
+  uint32 tried_score[8];
+  int tried_count = 0;
+
+  // Save the settings this search touches; restored at the end
+  uint8 saved_timeperdiv  = scopesettings.timeperdiv;
+  uint8 saved_samplerate  = scopesettings.samplerate;
+  uint8 saved_ch1_enable  = scopesettings.channel1.enable;
+  uint8 saved_ch1_vperdiv = scopesettings.channel1.samplevoltperdiv;
+  int16 saved_ch1_comp1   = scopesettings.channel1.adc1compensation;
+  int16 saved_ch1_comp2   = scopesettings.channel1.adc2compensation;
+
+  // Measure the RAW hardware mismatch: the read path applies the stored interleave
+  // compensation at rate 0, which was calibrated for one specific clock and would
+  // distort the comparison between candidates. Zero it for the duration of the search.
+  scopesettings.channel1.adc1compensation = 0;
+  scopesettings.channel1.adc2compensation = 0;
+
+  // Use CH1 for measurement. Make sure it's enabled at a mid sensitivity.
+  scopesettings.channel1.enable = 1;
+  scopesettings.channel1.samplevoltperdiv = 3;   // some mid range, ~ 200mV or whatever
+  fpga_set_channel_enable(&scopesettings.channel1);
+  fpga_set_channel_voltperdiv(&scopesettings.channel1);
+  fpga_set_channel_offset(&scopesettings.channel1);
+
+  // Pick a fast timebase that uses the highest rate index so the interleaved ADCs are
+  // maximally engaged during the test captures
+  scopesettings.timeperdiv = 32;
+  scopesettings.samplerate = time_per_div_sample_rate[scopesettings.timeperdiv];
+
+  // Clear a dedicated debug/status area once so per-candidate outputs can use
+  // distinct lines and remain visible instead of overwriting each other.
+  display_set_fg_color(DARKGREY_COLOR);
+  display_fill_rect(380, 275, 380, 130);
+  display_set_fg_color(COLOR_WHITE);
+  display_set_font(&font_1);
+  int caldbg_y = 278;   // starting line for accumulating status lines
+
+  for (int ci = 0; ci < nc; ++ci)
+  {
+    uint8 p1b = candidates[ci];
+
+    // Switch clock
+    clock_synthesizer_apply_sampling_clock(p1b);
+
+    // The PLL bounce can glitch the FPGA's backlight PWM; re-assert the dimmed level
+    // once the clock is back so the screen doesn't strobe through the search
+    timer0_delay(10);
+    fpga_set_backlight_brightness(0x0800);
+
+    fpga_set_time_base(scopesettings.timeperdiv);
+    fpga_set_sample_rate(scopesettings.samplerate);
+
+    // Let analog settle a bit
+    timer0_delay(30);
+
+    // Disable the trigger system for free running captures
+    fpga_write_cmd(0x0F); fpga_write_byte(0x01);
+
+    // A marginal clock glitches only OCCASIONALLY (bench observation: a single capture
+    // let 80 MHz pass while it glitches now and then in use). Capture MANY times and
+    // keep the WORST average score AND the worst single-sample peak, so both sustained
+    // degradation and rare one-shot glitches disqualify the clock.
+    uint32 score = 0;
+    uint32 peak = 0;
+    int32 raw_avg = -1;
+    for (int rep = 0; rep < 10; ++rep)
+    {
+      fpga_do_conversion();
+
+      // Timeout to detect the FPGA not keeping up with a faster clock. Pre-decrement so
+      // the loop leaves timeout at exactly 0 when it expires (post-decrement wraps).
+      uint32 timeout = 2000000;
+      while ((fpga_done_conversion() == 0) && (--timeout)) { /* spin with limit */ }
+
+      uint32 repscore;
+      uint32 reppeak = 0;
+      if (timeout == 0) {
+        repscore = 999999;  // FPGA not responding in time -> clock too fast for this bitstream
+      } else {
+        // Read into channel1 buffer
+        fpga_read_sample_data(&scopesettings.channel1, fpgasettings.settriggerpoint / 2);
+
+        repscore = measure_high_rate_artifact(&scopesettings.channel1, &reppeak);
+        raw_avg = scopesettings.channel1.adc1rawaverage;
+      }
+
+      if (repscore > score)
+        score = repscore;
+      if (reppeak > peak)
+        peak = reppeak;
+
+      // No point repeating on a dead capture
+      if (repscore == 999999)
+        break;
+    }
+
+    // Record for summary
+    if (tried_count < 8) {
+      tried_p1b[tried_count] = p1b;
+      tried_score[tried_count] = score;
+      tried_count++;
+    }
+
+    // Update display with actual score + peak + raw avg (key stat: ~128 good for quiet input).
+    // Each candidate gets its own line so the history stays visible.
+    show_clock_test_status(p1b, score, peak, best_p1b, raw_avg, caldbg_y);
+    caldbg_y += 11;
+
+    if (p1b == 0x06)
+    {
+      stock_score = score;
+      stock_peak = peak;
+      best_score = score;
+
+      // If even the stock clock can't capture cleanly something else is wrong; bail out
+      if (stock_score == 999999)
+        break;
+    }
+    else
+    {
+      // Goal is the FASTEST clock that stays clean, not the lowest score (stock always
+      // scores lowest). Accept within 1.25x of the stock reference (+ small absolute
+      // headroom so a near-zero quiet-input reference doesn't flunk everything). The
+      // separate peak gate exists because occasional single-sample glitches barely move
+      // the averaged score: the worst single excursion must also stay near stock's.
+      // Stop at the first failure: faster clocks only get worse.
+      if ((score != 999999) &&
+          (score < (((stock_score * 5) / 4) + 6)) &&
+          (peak <= ((stock_peak * 2) + 8)))
+      {
+        best_p1b = p1b;
+        best_score = score;
+      }
+      else
+      {
+        break;
+      }
+    }
+
+    // Small delay so user can see the status (longer so lines are readable)
+    timer0_delay(450);
+  }
+
+  // Return to the winner (the loop may have ended on a failing clock)
+  if (best_p1b != sampling_clock_p1b) {
+    clock_synthesizer_apply_sampling_clock(best_p1b);
+    timer0_delay(10);
+    fpga_set_backlight_brightness(0x0800);
+  }
+
+  // Re-enable the trigger system and restore the settings the search touched. This runs
+  // standalone from the clock menu now, so the FPGA side must be fully restored here
+  // (rate, timebase, channel sensitivity/offset), not just the local settings copies.
+  fpga_write_cmd(0x0F); fpga_write_byte(0x00);
+  scopesettings.timeperdiv = saved_timeperdiv;
+  scopesettings.samplerate = saved_samplerate;
+  scopesettings.channel1.enable = saved_ch1_enable;
+  scopesettings.channel1.samplevoltperdiv = saved_ch1_vperdiv;
+  scopesettings.channel1.adc1compensation = saved_ch1_comp1;
+  scopesettings.channel1.adc2compensation = saved_ch1_comp2;
+  fpga_set_channel_enable(&scopesettings.channel1);
+  fpga_set_channel_voltperdiv(&scopesettings.channel1);
+  fpga_set_channel_offset(&scopesettings.channel1);
+  fpga_set_sample_rate(scopesettings.samplerate);
+  fpga_set_time_base(scopesettings.timeperdiv);
+
+  // Detailed summary of all attempts (use space below the per-candidate lines so everything
+  // stays on screen for a while and is not overwritten by Ch1/Ch2 status text at y~255).
+  {
+    // Use remaining area in our debug region; start below the last status line.
+    int sumy = (caldbg_y < 320) ? 320 : (caldbg_y + 4);
+    display_set_fg_color(DARKGREY_COLOR);
+    display_fill_rect(380, sumy, 380, 55);
+    display_set_fg_color(COLOR_WHITE);
+    display_set_font(&font_1);
+
+    // Line 1: Tried list
+    char sbuf[80];
+    int spos = 0;
+    sbuf[spos++] = 'T'; sbuf[spos++]='r'; sbuf[spos++]='i'; sbuf[spos++]='e'; sbuf[spos++]='d'; sbuf[spos++]=':';
+    for (int i=0; i<tried_count; i++) {
+      const char* l = (tried_p1b[i]==0x06)?"50":(tried_p1b[i]==0x05)?"57":(tried_p1b[i]==0x04)?"67":"80";
+      while(*l) sbuf[spos++] = *l++;
+      sbuf[spos++]=':'; 
+      uint32 sc = tried_score[i]; if(sc>9999)sc=9999;
+      char st[6]; int sti=0; uint32 tsc=sc; if(!tsc)st[sti++]='0';else while(tsc){st[sti++]='0'+tsc%10;tsc/=10;}
+      for(int k=sti-1;k>=0;k--) sbuf[spos++]=st[k];
+      sbuf[spos++] = ' ';
+    }
+    sbuf[spos]=0;
+    display_text(385, sumy + 3, sbuf);
+
+    // Line 2: Best + final scale info
+    spos = 0;
+    sbuf[spos++] = 'B'; sbuf[spos++]='e'; sbuf[spos++]='s'; sbuf[spos++]='t'; sbuf[spos++]=' ';
+    const char* bl = (best_p1b==0x06)?"50M":(best_p1b==0x05)?"57M":(best_p1b==0x04)?"67M":"80M";
+    while(*bl) sbuf[spos++] = *bl++;
+    sbuf[spos++] = ' '; sbuf[spos++]='s'; sbuf[spos++]='c'; sbuf[spos++]=':'; 
+    uint32 ss = best_score; if(ss>9999)ss=9999;
+    char stmp[6]; int sti=0; if(!ss) stmp[sti++]='0'; else while(ss){stmp[sti++]='0'+ss%10; ss/=10;}
+    for(int kk=sti-1;kk>=0;kk--) sbuf[spos++]=stmp[kk];
+    sbuf[spos++]=' '; sbuf[spos++]='s'; sbuf[spos++]='c'; sbuf[spos++]='a'; sbuf[spos++]='l'; sbuf[spos++]='e'; sbuf[spos++]=':'; 
+    // simple 1.0 / 1.3 etc
+    if (sampling_clock_scale < 1.05) { sbuf[spos++]='1'; sbuf[spos++]='.'; sbuf[spos++]='0'; }
+    else if (sampling_clock_scale < 1.2) { sbuf[spos++]='1'; sbuf[spos++]='.'; sbuf[spos++]='1'; }
+    else if (sampling_clock_scale < 1.45) { sbuf[spos++]='1'; sbuf[spos++]='.'; sbuf[spos++]='3'; }
+    else { sbuf[spos++]='1'; sbuf[spos++]='.'; sbuf[spos++]='6'; }
+    sbuf[spos]=0;
+    display_text(385, sumy + 16, sbuf);
+
+    //Leave the summary on screen long enough to actually read it (the per-candidate
+    //status lines are now persistent above); the channel calibration that follows draws elsewhere
+    timer0_delay(4500);
+  }
+
+  // Optional: you could persist best_p1b via the calibration sector.
+  return best_p1b;
+}
+
+// Show brief status during clock search (called from auto_detect while BUSY is up).
+// y parameter allows caller to place successive calls on distinct lines so they stay visible.
+static void show_clock_test_status(uint8 p1b, uint32 score, uint32 peak, uint8 best_p1b_so_far, int32 raw_avg, int y)
+{
+  // Draw status at caller-provided y. The tall region was pre-cleared; do not fill large
+  // areas here or we would erase previous status lines.
+  display_set_fg_color(COLOR_WHITE);
+  display_set_font(&font_1);
+
+  // Rough freq labels
+  const char *label = "?";
+  if (p1b == 0x06) label = "50M";
+  else if (p1b == 0x05) label = "57M";
+  else if (p1b == 0x04) label = "67M";
+  else if (p1b == 0x03) label = "80M";
+
+  char buf[48];
+  int pos = 0;
+  // "CLK:XXM s:YYYY p:PPP a:ZZZ b:WW"
+  buf[pos++]='C'; buf[pos++]='L'; buf[pos++]='K'; buf[pos++]=':';
+  while (*label) buf[pos++] = *label++;
+  buf[pos++]=' '; buf[pos++]='s'; buf[pos++]=':';
+
+  // score
+  uint32 s = score;
+  if (s > 99999) s = 99999;
+  char tmp[8]; int ti=0;
+  if (s==0) tmp[ti++]='0';
+  else { while(s){ tmp[ti++] = '0' + (s%10); s/=10; } }
+  for(int k=ti-1; k>=0; k--) buf[pos++] = tmp[k];
+
+  // worst single even/odd pair excursion over all captures of this candidate
+  buf[pos++] = ' '; buf[pos++]='p'; buf[pos++]=':';
+  uint32 pk = peak;
+  if (pk > 999) pk = 999;
+  ti=0;
+  if (pk==0) tmp[ti++]='0';
+  else { while(pk){ tmp[ti++] = '0' + (pk%10); pk/=10; } }
+  for(int k=ti-1; k>=0; k--) buf[pos++] = tmp[k];
+
+  buf[pos++] = ' '; buf[pos++]='a'; buf[pos++]=':';
+  // raw avg (from last capture, around 128 expected for quiet mid)
+  int32 ra = raw_avg;
+  if (ra < 0) ra = 0;
+  if (ra > 255) ra = 255;
+  ti=0; uint32 ra2 = ra;
+  if (ra2==0) tmp[ti++]='0';
+  else { while(ra2){ tmp[ti++] = '0' + (ra2%10); ra2/=10; } }
+  for(int k=ti-1; k>=0; k--) buf[pos++] = tmp[k];
+
+  buf[pos++] = ' '; buf[pos++]='b'; buf[pos++]=':';
+  if (best_p1b_so_far == 0x06) { buf[pos++]='5'; buf[pos++]='0'; }
+  else if (best_p1b_so_far == 0x05) { buf[pos++]='5'; buf[pos++]='7'; }
+  else if (best_p1b_so_far == 0x04) { buf[pos++]='6'; buf[pos++]='7'; }
+  else if (best_p1b_so_far == 0x03) { buf[pos++]='8'; buf[pos++]='0'; }
+  buf[pos] = 0;
+
+  display_text(385, y, buf);
+}
+#endif  // PORT_1014D
 
 //----------------------------------------------------------------------------------------------------------------------------------
 
@@ -2560,8 +3072,43 @@ void scope_do_auto_setup_new(void)
 
 void scope_calculate_sample_range_properties(void)
 {
-  disp_xpos_per_sample = (50.0 * frequency_per_div[scopesettings.timeperdiv]) / sample_rate[scopesettings.samplerate];
+  // Effective sample rate respects any overclocked sampling clock (sampling_clock_scale).
+  // This keeps time calculations, trigger position, and trace rendering consistent with the
+  // actual achieved rate while the time/div labels stay the same.
+  uint32 eff_sr = (uint32)(sample_rate[scopesettings.samplerate] * sampling_clock_scale + 0.5);
+  if (eff_sr == 0) eff_sr = sample_rate[scopesettings.samplerate];
+
+  //Same scaling the trace display path uses: long time base mode works on a reduced x range
+  if(scopesettings.long_mode) disp_xpos_per_sample = (5.0 * frequency_per_div[scopesettings.timeperdiv]) / eff_sr;
+    else disp_xpos_per_sample = (50.0 * frequency_per_div[scopesettings.timeperdiv]) / eff_sr;
+
+  //This gives the step size for going through the samples. Is also the linear interleaving step for the y direction
   disp_sample_step = 1.0 / disp_xpos_per_sample;
+
+  //The displayable x range is based on the number of captured samples and the number of x positions needed per sample
+  //Halved to allow the trigger position to be in the center (the display path spans totalsamples around it)
+  disp_xrange = (fpgasettings.totalsamples * disp_xpos_per_sample) / 2.0;
+
+  //x range needs to be at least 1 pixel
+  if(disp_xrange < 1.0)
+  {
+    disp_xrange = 1.0;
+  }
+
+  //Set the bounds for horizontal trigger position adjustment
+  //Limit on the ends a bit extra to avoid artifacts
+  trigger_position_min = (TRACE_HORIZONTAL_END - disp_xrange) + 5;
+  trigger_position_max = (TRACE_HORIZONTAL_START + disp_xrange) - 5;
+
+  //Limit the current pointer to the new extremes
+  if(scopesettings.triggerhorizontalposition < trigger_position_min)
+  {
+    scopesettings.triggerhorizontalposition = trigger_position_min;
+  }
+  else if(scopesettings.triggerhorizontalposition > trigger_position_max)
+  {
+    scopesettings.triggerhorizontalposition = trigger_position_max;
+  }
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -2572,8 +3119,12 @@ void scope_display_trace_data(void)
   //thumbnaildata = &viewthumbnaildata[0]; 
   thumbnaildata = &viewthumbnaildata[viewcurrentindex];
 
-  //Don't draw if a menu is active
+  //Don't draw if a menu is active, except for overlay menus that are composited over the traces
+#if PORT_1014D
+  if((!enabletracedisplay) && (!ui_menu_composite_active())) return;
+#else
   if(!enabletracedisplay) return;
+#endif
   
   //See if it is possible to rework this to fixed point. A 32 bit mantissa is not accurate enough though
 
@@ -2607,8 +3158,12 @@ void scope_display_trace_data(void)
   //SKipp displaying if not????
 
   //The amount of x positions needed per sample is based on the number of pixels per division, the set time per division and the sample rate.
-  if(scopesettings.long_mode) disp_xpos_per_sample = (5.0*frequency_per_div[scopesettings.timeperdiv]) / sample_rate[scopesettings.samplerate];
-    else disp_xpos_per_sample = (50.0 * frequency_per_div[scopesettings.timeperdiv]) / sample_rate[scopesettings.samplerate];
+  {
+    uint32 eff_sr2 = (uint32)(sample_rate[scopesettings.samplerate] * sampling_clock_scale + 0.5);
+    if (eff_sr2 == 0) eff_sr2 = sample_rate[scopesettings.samplerate];
+    if(scopesettings.long_mode) disp_xpos_per_sample = (5.0*frequency_per_div[scopesettings.timeperdiv]) / eff_sr2;
+      else disp_xpos_per_sample = (50.0 * frequency_per_div[scopesettings.timeperdiv]) / eff_sr2;
+  }
   //disp_xpos_per_sample = (5.0 * frequency_per_div[scopesettings.timeperdiv]) / sample_rate[scopesettings.samplerate];
   
     //scope_test_longbase_value();
@@ -2882,11 +3437,29 @@ void scope_display_trace_data(void)
       scopesettings.runstate == RUN_STATE_RUNNING ? 0 : 1);
   ui_draw_pointers();
   ui_display_cursors();
+
+  //Composite any open overlay menu on top so the traces keep updating beneath it
+  ui_redraw_active_menu();
 #endif
   display_set_source_buffer(displaybuffertmp);//1
   display_set_screen_buffer((uint16 *)maindisplaybuffer);
+#if PORT_1014D
+  //P14 layout: the trace window ends at x=706 (grid at 704) and the measurements sidebar
+  //starts right after it. Copying Atlan4's full 728-wide trace buffer wiped the sidebar
+  //edge (slot dividers, value fronts) every frame — trace drawn beyond x=706 simply is
+  //not shown, matching where the P14 grid ends
+  display_copy_rect_to_screen(2, 48, 705, 432);
+
+  //Refresh the six measurement slots on the sidebar (pecostm32 does this every trace frame)
+  ui_update_measurements();
+
+  //ui_update_measurements leaves the screen buffer on displaybuffer1 (P14 convention where
+  //that is the trace buffer); chrome drawn outside the trace flow expects the visible screen
+  display_set_screen_buffer((uint16 *)maindisplaybuffer);
+#else
   display_copy_rect_to_screen(2, 48, 728, 432);
   //display_copy_rect_to_screen(2, 44, 728, 434);       //opravit rozmery
+#endif
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -4615,6 +5188,10 @@ void scope_restore_setup_from_file(void)
   scopesettings.movespeed        = ptr[index++];
   scopesettings.rightmenustate   = ptr[index++];
   scopesettings.screenbrightness = ptr[index++];
+
+  //Safety for old zeroed movespeed
+  if (scopesettings.movespeed == 0)
+      scopesettings.movespeed = MOVE_SPEED_FAST;
   scopesettings.gridbrightness   = ptr[index++];
   scopesettings.alwaystrigger50  = ptr[index++];
   scopesettings.xymodedisplay    = ptr[index++];
@@ -6784,8 +7361,8 @@ void scope_reset_config_data(void)
   scopesettings.triggerhorizontalposition = 357;    //int32
   scopesettings.triggerverticalposition   = 300;
 
-  //Set move speed to fast
-  scopesettings.movespeed = 0;
+  //Set move speed to fast (default like pecostm32 1014D)
+  scopesettings.movespeed = MOVE_SPEED_FAST;
 
   //Set time base to 200uS/div
   scopesettings.timeperdiv = 20;//9+11 12+11
@@ -6796,10 +7373,39 @@ void scope_reset_config_data(void)
   //Select CH1 is source1 & CH2 is source2
   scopesettings.source1_measures = 0;
   scopesettings.source2_measures = 0;
-    
+
   //Enable some default measurements
   scopesettings.hide_values_CH1 = 0;
   scopesettings.hide_values_CH2 = 0;
+
+#if PORT_1014D
+  //Default F-key measurement slots per pecostm32's 1014D firmware: Vpp, Vavg and Freq for
+  //each channel. Without this the zeroed globals leave every slot on Vmax with a NULL
+  //channelsettings pointer.
+  scopesettings.measurementitems[0].channelsettings = &scopesettings.channel1;
+  scopesettings.measurementitems[0].channel         = 0;
+  scopesettings.measurementitems[0].index           = 4;                            //Vpp
+
+  scopesettings.measurementitems[1].channelsettings = &scopesettings.channel1;
+  scopesettings.measurementitems[1].channel         = 0;
+  scopesettings.measurementitems[1].index           = 2;                            //Vavg
+
+  scopesettings.measurementitems[2].channelsettings = &scopesettings.channel1;
+  scopesettings.measurementitems[2].channel         = 0;
+  scopesettings.measurementitems[2].index           = 6;                            //Freq
+
+  scopesettings.measurementitems[3].channelsettings = &scopesettings.channel2;
+  scopesettings.measurementitems[3].channel         = 1;
+  scopesettings.measurementitems[3].index           = 4;                            //Vpp
+
+  scopesettings.measurementitems[4].channelsettings = &scopesettings.channel2;
+  scopesettings.measurementitems[4].channel         = 1;
+  scopesettings.measurementitems[4].index           = 2;                            //Vavg
+
+  scopesettings.measurementitems[5].channelsettings = &scopesettings.channel2;
+  scopesettings.measurementitems[5].channel         = 1;
+  scopesettings.measurementitems[5].index           = 6;                            //Freq
+#endif
 
   //Turn time cursor off and set some default positions
   scopesettings.timecursorsenable   = 0;
@@ -6871,8 +7477,12 @@ void scope_reset_config_data(void)
   
   //----------------------------------------------------------------------------
   ptr[0] = 4;  //PECO + menu //value for default start firmware (0-pepco,1-fnirsi, 2-FEL, <3 skip menu)
+#if !PORT_1014D
   //SAVE the display configuration sector from DRAM to SDcart   //save boot menu and default start
+  //On the 1014D chain nothing populates the DRAM staging block and the boot loader ignores the
+  //sector, so writing it would only put garbage there (BOOT_NOTES.md)
   sd_card_write(DISPLAY_CONFIG_SECTOR, 1, (uint8 *)0x81BFFC00);
+#endif
   
   //----------------------------------------------------------------------------
   //Load input calibration value 
@@ -7020,7 +7630,20 @@ void scope_save_config_data(void)
       *ptr++ = scopesettings.measuresstate[channel][index];
     }
   }
-  
+
+#if PORT_1014D
+//================================================================
+  //Save the six 1014D F-key measurement slots (channel + measurement index per slot);
+  //the channelsettings pointer is rebuilt from channel on restore
+  ptr = &settingsworkbuffer[MEASUREMENT_SLOT_SETTING_OFFSET];
+
+  for(index=0;index<6;index++)
+  {
+    *ptr++ = scopesettings.measurementitems[index].channel;
+    *ptr++ = scopesettings.measurementitems[index].index;
+  }
+#endif
+
 //================================================================
   //Point to the calibration settings               12
   ptr = &settingsworkbuffer[CALIBRATION_SETTING_OFFSET];
@@ -7148,6 +7771,11 @@ void scope_restore_config_data(void)
     //Restore the other settings
     scopesettings.movespeed        = *ptr++;
     scopesettings.rightmenustate   = *ptr++;
+
+    //Safety: old resets saved 0 which disables all trim/position movement until MOVE_SPEED pressed.
+    //Force a sane default (Fast) if zero.
+    if (scopesettings.movespeed == 0)
+        scopesettings.movespeed = MOVE_SPEED_FAST;
     scopesettings.confirmationmode = *ptr++;
     scopesettings.screenbrightness = *ptr++;
     scopesettings.gridbrightness   = *ptr++;
@@ -7217,6 +7845,37 @@ void scope_restore_config_data(void)
         scopesettings.measuresstate[channel][index] = *ptr++;
       }
     }
+
+#if PORT_1014D
+    //Restore the six 1014D F-key measurement slots and make them coherent: clamp the
+    //channel, rebuild the channelsettings pointer (pointers cannot be persisted), and
+    //fall back to the pecostm32 defaults (Vpp/Vavg/Freq per channel) on a garbage index
+    ptr = &settingsworkbuffer[MEASUREMENT_SLOT_SETTING_OFFSET];
+
+    for(index=0;index<6;index++)
+    {
+      static const uint8 default_slot_channel[6] = { 0, 0, 0, 1, 1, 1 };
+      static const uint8 default_slot_index[6]   = { 4, 2, 6, 4, 2, 6 };
+
+      uint32 slotchannel = *ptr++;
+      uint32 slotindex   = *ptr++;
+
+      if((slotchannel > 1) || (slotindex >= 12))
+      {
+        slotchannel = default_slot_channel[index];
+        slotindex   = default_slot_index[index];
+      }
+
+      scopesettings.measurementitems[index].channel = slotchannel;
+      scopesettings.measurementitems[index].index   = slotindex;
+
+      if(slotchannel == 0)
+        scopesettings.measurementitems[index].channelsettings = &scopesettings.channel1;
+      else
+        scopesettings.measurementitems[index].channelsettings = &scopesettings.channel2;
+    }
+#endif
+
     //Load reference waveforms
     scope_load_ALLREF_file();
     //--------------------------------------------------------------------------

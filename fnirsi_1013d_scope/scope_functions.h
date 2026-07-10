@@ -39,6 +39,9 @@ uint32 scope_do_baseline_calibration(void);
 uint32 scope_do_channel_calibration(void);
 void scope_input_calibration(void);
 
+//1014D only: Si5351 sampling clock search (Factory settings -> Sampling clock -> Auto search)
+uint8 auto_detect_max_clean_sampling_clock(void);
+
 void scope_do_50_percent_trigger_setup(void);
 
 void scope_do_auto_setup(void);

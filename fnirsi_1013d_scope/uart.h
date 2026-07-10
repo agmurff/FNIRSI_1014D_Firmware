@@ -60,6 +60,8 @@
 
 //----------------------------------------------------------------------------------------------------------------------------------
 //1014D key codes (returned by uart1_get_user_input)
+//Documentation only — dispatch uses the matching UIC_BUTTON_*/UIC_ROTARY_* codes in statemachine.h.
+//0x08=RIGHT / 0x0C=LEFT per pecostm32's confirmed mapping (the original port_a labels had these two swapped).
 //----------------------------------------------------------------------------------------------------------------------------------
 
 #define GD_KEY_RUN_STOP 0x01
@@ -69,11 +71,11 @@
 #define GD_KEY_S_WAV 0x05
 #define GD_KEY_H_CUR 0x06
 #define GD_KEY_V_CUR 0x07
-#define GD_KEY_NAV_LEFT 0x08
+#define GD_KEY_NAV_RIGHT 0x08
 #define GD_KEY_NAV_UP 0x09
 #define GD_KEY_NAV_OK 0x0A
 #define GD_KEY_NAV_DOWN 0x0B
-#define GD_KEY_NAV_RIGHT 0x0C
+#define GD_KEY_NAV_LEFT 0x0C
 #define GD_KEY_MOVE_SPEED 0x0D
 #define GD_KEY_CH1 0x0E
 #define GD_KEY_CONF_CH1 0x0F

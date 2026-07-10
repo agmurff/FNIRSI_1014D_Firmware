@@ -17,16 +17,19 @@
 //Version info
 //----------------------------------------------------------------------------------------------------------------------------------
 
+//No variant suffix on the displayed version — the 1014D build is recognizable by its own UI,
+//and the suffix overflowed the version text area. Build artifacts stay variant-named (Makefile).
+#define VERSION_STRING             "v1.00o5" //fix EF2 circle buffer to 6144, add text in diagnostic screen
+
 #if PORT_1014D
-#define VERSION_BUILD "-1014D"
+//pecostm32's 1014D top-bar position (after the RUN/STOP text) — Atlan4's 1013D position
+//(698,24) lands on the F1 measurement-slot text in the P14 layout
+#define VERSION_STRING_XPOS             233
+#define VERSION_STRING_YPOS               4
 #else
-#define VERSION_BUILD ""
-#endif
-
-#define VERSION_STRING             "v1.00o5" VERSION_BUILD //fix EF2 circle buffer to 6144, add text in diagnostic screen
-
-#define VERSION_STRING_XPOS             698//690//681     //690 
+#define VERSION_STRING_XPOS             698//690//681     //690
 #define VERSION_STRING_YPOS              24
+#endif
 
 //----------------------------------------------------------------------------------------------------------------------------------
 //Defines
@@ -112,11 +115,12 @@
 #define MEASUREMENT_SETTING_OFFSET       136   //32 all, used 28*16bit      used 26*16bit
 #define CALIBRATION_SETTING_OFFSET       168   //16 all, used 12*16bit   
 #define CALIBRATION_SETTING_OFFSET_C     184   // 8 all, used  4*16bit 
-#define FPGA_SETTING_OFFSET              192   //16 all, used 12*16bit 
+#define FPGA_SETTING_OFFSET              192   //16 all, used 12*16bit
+#define MEASUREMENT_SLOT_SETTING_OFFSET  208   //48 free to end; 1014D F-key slots: 6*(channel,index)=12*16bit
                                        //208 next  max is VIEW_NUMBER_OF_SETTINGS
                                                 
 #define SETTING_SECTOR_VERSION_HIGH  0x0100    // 0x0100    //load default settings
-#define SETTING_SECTOR_VERSION_LOW   0x0015    //>0x0002    //nova verzia ma ma 2 na 709 sector
+#define SETTING_SECTOR_VERSION_LOW   0x0016    //0x0016: added 1014D measurement slots at offset 208 (bump forces one defaults reload)
 
 #define WAVEFORM_FILE_VERSION    0x01000002    //Version 1.0.0.2
 
@@ -202,6 +206,8 @@
 //----------------------------------------------------------------------------------------------------------------------------------
 
 #define MEASUREMENT_CHANNEL_BOX_X        772
+//P14-native position; safe since the per-frame trace copy was narrowed to the P14
+//trace window (ends x=706) instead of Atlan4's full 728-wide buffer
 #define MEASUREMENT_LABEL_X              719
 #define MEASUREMENT_DESIGNATOR_X         768
 #define MEASUREMENT_ZERO_X               735
@@ -1241,6 +1247,7 @@ extern uint32 sampleratedcoffsetstep[2][6];
 //----------------------------------------------------------------------------------------------------------------------------------
 
 extern const int8 *volt_div_texts[7][7];//3-7
+extern const char *volt_div_texts_short[7][7];  //1014D top bar (57px field, no "/div")
 extern const int16 volt_div_texts_x_offsets[7][7];//21
 
 //extern const int8 *volt_div_texts[7][12];//3-7
@@ -1449,6 +1456,10 @@ extern PCHANNELSETTINGS currentsettings;
 extern double disp_xrange;
 extern int32  trigger_position_min;
 extern int32  trigger_position_max;
+
+// Overclock support (see clock_synthesizer.c and clock_synthesizer_set_sampling_clock)
+extern uint8  sampling_clock_p1b;
+extern double sampling_clock_scale;
 extern const UI_MEASUREMENTFUNCTION measurement_functions[];
 
 //----------------------------------------------------------------------------------------------------------------------------------

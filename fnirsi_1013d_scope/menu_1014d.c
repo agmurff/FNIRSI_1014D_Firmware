@@ -10,6 +10,7 @@
 #include "statemachine.h"
 #include "scope_functions.h"
 #include "fpga_control.h"
+#include "build_time.h"
 
 #if PORT_1014D
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -46,10 +47,29 @@ void ui_setup_main_screen(void)
   ui_display_waiting_triggered_text(0);
   ui_display_measurements();
 
-  //Show version information
-  display_set_fg_color(COLOR_WHITE);
-  display_set_font(&font_2);
-  display_text(VERSION_STRING_XPOS, VERSION_STRING_YPOS, VERSION_STRING);
+  //Show version information with the build stamp (MMDD.HHMM from build_time.h, regenerated
+  //on every make) so a freshly flashed binary is distinguishable at a glance. Two small
+  //lines: the single font_2 line ran into the move speed icon/text at x=330
+  {
+    char stamptext[12];
+    char *p = stamptext;
+
+    *p++ = '0' + (COMPILE_MONTH / 10);
+    *p++ = '0' + (COMPILE_MONTH % 10);
+    *p++ = '0' + (COMPILE_DAY / 10);
+    *p++ = '0' + (COMPILE_DAY % 10);
+    *p++ = '.';
+    *p++ = '0' + (COMPILE_HOUR / 10);
+    *p++ = '0' + (COMPILE_HOUR % 10);
+    *p++ = '0' + (COMPILE_MIN / 10);
+    *p++ = '0' + (COMPILE_MIN % 10);
+    *p = 0;
+
+    display_set_fg_color(COLOR_WHITE);
+    display_set_font(&font_1);
+    display_text(VERSION_STRING_XPOS, VERSION_STRING_YPOS, VERSION_STRING);
+    display_text(VERSION_STRING_XPOS, VERSION_STRING_YPOS + 12, stamptext);
+  }
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -1078,6 +1098,10 @@ void ui_display_trigger_horizontal_position(void)
     //For the time multiply with the scaling factor and display based on the time scale
     delta *= tcd->mul_factor;
 
+    // No sampling_clock_scale correction here: the trace rendering divides by the
+    // EFFECTIVE sample rate (scope_display_trace_data), which already keeps screen
+    // pixels consistent with the labeled time/div - scaling again would double-correct.
+
     //Format the time for displaying
     ui_msm_print_value(globaldisplaytext, delta, tcd->time_scale, "s");
 
@@ -1269,23 +1293,44 @@ TEXTDATA channel_probe_texts[] =
 };
 
 //----------------------------------------------------------------------------------------------------------------------------------
+//The Atlan4 magnification tables (volt_div_texts, volt_calc_data, ...) have seven rows:
+//0.5x, 1x, 10x, 20x, 50x, 100x, 1000x. The 1014D probe UI only offers 1:1, 10:1 and
+//100:1, which are table rows 1, 2 and 5. These helpers translate between the 3-entry
+//probe selection and the 7-row magnification index stored in the channel settings.
+
+const uint8 probe_magnification_from_index[3] = { 1, 2, 5 };
+
+uint32 ui_probe_index_from_magnification(uint32 magnification)
+{
+  if(magnification <= 1)
+    return(0);
+
+  if(magnification <= 4)
+    return(1);
+
+  return(2);
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
 
 void ui_display_channel_probe(PCHANNELSETTINGS settings)
 {
+  uint32 probeindex = ui_probe_index_from_magnification(settings->magnification);
+
   //Colors are different when disabled or enabled
   if(settings->enable)
   {
     //For the enabled channel the text is brighter
-    channel_probe_texts[settings->magnification].color = 0x00F8FCF8;
+    channel_probe_texts[probeindex].color = 0x00F8FCF8;
   }
   else
   {
     //When disabled the disabled color is used
-    channel_probe_texts[settings->magnification].color = 0x00888888;
+    channel_probe_texts[probeindex].color = 0x00888888;
   }
 
   //Display the shaded rectangle with the selected text
-  display_draw_shaded_rect(settings->infoxpos + 22, settings->infoypos, &channel_probe_box, &channel_probe_texts[settings->magnification]);
+  display_draw_shaded_rect(settings->infoxpos + 22, settings->infoypos, &channel_probe_box, &channel_probe_texts[probeindex]);
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -1353,8 +1398,9 @@ void ui_display_channel_sensitivity(PCHANNELSETTINGS settings)
   //The text is drawn with a basic font
   display_set_font(&font_1);
 
-  //Display the selected sensitivity
-  display_right_aligned_text(x + 54, y, volt_div_texts[settings->magnification][settings->displayvoltperdiv]);
+  //Display the selected sensitivity. The short texts (no "/div") are used because the
+  //field is only 57 pixels wide; the full Atlan4 texts overflow it into the DIV label
+  display_right_aligned_text(x + 54, y, volt_div_texts_short[settings->magnification][settings->displayvoltperdiv]);
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -1468,6 +1514,10 @@ void ui_update_measurements(void)
 {
   PCHANNELSETTINGS settings;
   int i,y;
+
+  //The copies below read from the source buffer; in this tree the trace flow leaves it
+  //pointing at displaybuffertmp, so explicitly select the buffer the values are drawn in
+  display_set_source_buffer(displaybuffer1);
 
   //Process the data for the available measurement slots
   for(i=0;i<(sizeof(scopesettings.measurementitems)/sizeof(MEASUREMENTINFO));i++)
@@ -2047,6 +2097,9 @@ void ui_display_channel_menu_probe_magnification_select(PCHANNELSETTINGS setting
 {
   int i;
 
+  //The 3-entry icon tables are indexed by probe selection, not by magnification table row
+  uint32 probeindex = ui_probe_index_from_magnification(settings->magnification);
+
   //Clear the background first
   display_set_fg_color(COLOR_BLACK);
   display_fill_rect(364, 222, 79, 14);
@@ -2058,7 +2111,7 @@ void ui_display_channel_menu_probe_magnification_select(PCHANNELSETTINGS setting
   for(i=0;i<3;i++)
   {
     //Only show the not selected ones
-    if(i != settings->magnification)
+    if(i != probeindex)
     {
       display_copy_icon_fg_color(channel_menu_magnification_icons[i], channel_menu_magnification_x_positions[i], 224, channel_menu_magnification_widths[i], 10);
     }
@@ -2068,11 +2121,11 @@ void ui_display_channel_menu_probe_magnification_select(PCHANNELSETTINGS setting
   display_set_fg_color(settings->color);
 
   //Highlight the selected item
-  display_fill_rect(channel_menu_magnification_x_positions[settings->magnification] - 2, 222, channel_menu_magnification_widths[settings->magnification] + 3, 13);
+  display_fill_rect(channel_menu_magnification_x_positions[probeindex] - 2, 222, channel_menu_magnification_widths[probeindex] + 3, 13);
 
   //Display the selected text in black
   display_set_fg_color(COLOR_BLACK);
-  display_copy_icon_fg_color(channel_menu_magnification_icons[settings->magnification], channel_menu_magnification_x_positions[settings->magnification], 224, channel_menu_magnification_widths[settings->magnification], 10);
+  display_copy_icon_fg_color(channel_menu_magnification_icons[probeindex], channel_menu_magnification_x_positions[probeindex], 224, channel_menu_magnification_widths[probeindex], 10);
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -5060,6 +5113,282 @@ void ui_show_calibration_message(uint32 state)
 
     case CALIBRATION_STATE_FAIL:
       display_copy_icon_fg_color(failed_text_icon, CALIBRATION_MSG_XPOS + 28, CALIBRATION_MSG_YPOS + 9, 41, 14);
+      break;
+  }
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//Factory settings menu (restore defaults, reboot, FEL firmware update)
+//----------------------------------------------------------------------------------------------------------------------------------
+
+HIGHLIGHTRECTDATA factory_menu_highlight_box =
+{
+  162,
+  26,
+  { COLOR_GREEN, COLOR_ISLAMIC_GREEN, COLOR_PHARMACY_GREEN, COLOR_DARK_GREEN },
+  COLOR_BLACK
+};
+
+const char *factory_menu_texts[4] =
+{
+  "Restore defaults",
+  "Reboot",
+  "FEL firmware update",
+  "Sampling clock"
+};
+
+//----------------------------------------------------------------------------------------------------------------------------------
+
+void ui_open_factory_menu(uint16 xpos, uint16 ypos, uint32 savebackground)
+{
+  //Only save the back ground when requested
+  if(savebackground)
+  {
+    //Save the screen under the factory menu box
+    display_set_destination_buffer(displaybuffer2);
+    display_copy_rect_from_screen(xpos, ypos, FACTORY_MENU_WIDTH, FACTORY_MENU_HEIGHT);
+
+    //Setup the menu in a separate buffer to be able to display without flicker
+    display_set_screen_buffer(displaybuffer1);
+  }
+
+  //Display the actual menu
+  ui_display_factory_menu(xpos, ypos);
+
+  //Only need to copy it onto the actual screen when the background is saved
+  if(savebackground)
+  {
+    //Set source and target for getting it on the actual screen
+    display_set_source_buffer(displaybuffer1);
+    display_set_screen_buffer((uint16 *)maindisplaybuffer);
+
+    //Show the factory menu box on the screen
+    display_copy_rect_to_screen(xpos, ypos, FACTORY_MENU_WIDTH, FACTORY_MENU_HEIGHT);
+  }
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+
+void ui_close_factory_menu(uint16 xpos, uint16 ypos)
+{
+  //Set source and target for getting it on the actual screen
+  display_set_source_buffer(displaybuffer2);
+  display_set_screen_buffer((uint16 *)maindisplaybuffer);
+
+  //Remove the factory menu box from the screen
+  display_copy_rect_to_screen(xpos, ypos, FACTORY_MENU_WIDTH, FACTORY_MENU_HEIGHT);
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+
+void ui_display_factory_menu(uint16 xpos, uint16 ypos)
+{
+  int i;
+
+  //Draw the menu outline slightly lighter then the background
+  display_set_fg_color(COLOR_DARK_GREY_3);
+  display_draw_rect(xpos, ypos, FACTORY_MENU_WIDTH, FACTORY_MENU_HEIGHT);
+
+  //Fill the lighter background of the menu area
+  display_set_fg_color(COLOR_DARK_GREY_1);
+  display_fill_rect(xpos + 1, ypos + 1, FACTORY_MENU_WIDTH - 2, FACTORY_MENU_HEIGHT - 2);
+
+  //Draw the menu high lighter box for the selected item
+  display_draw_highlight_rect(xpos + 4, ypos + 4 + (onoffhighlighteditem * 31), &factory_menu_highlight_box);
+
+  //Text is displayed in white
+  display_set_fg_color(COLOR_WHITE);
+  display_set_font(&font_1);
+
+  //Draw the label per line
+  for(i=0;i<4;i++)
+  {
+    display_text(xpos + 12, ypos + 11 + (i * 31), factory_menu_texts[i]);
+  }
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//Sampling clock menu (manual Si5351 CLK1 selection for A/B testing, plus the auto search)
+//----------------------------------------------------------------------------------------------------------------------------------
+
+uint32 clockmenuhighlighteditem;
+
+const char *clock_menu_texts[5] =
+{
+  "50 MHz stock",
+  "57 MHz",
+  "67 MHz",
+  "80 MHz",
+  "Auto search"
+};
+
+//p1b divider value per menu item; the last item is the auto search
+const uint8 clock_menu_p1b[4] = { 0x06, 0x05, 0x04, 0x03 };
+
+//----------------------------------------------------------------------------------------------------------------------------------
+
+void ui_open_clock_menu(uint16 xpos, uint16 ypos, uint32 savebackground)
+{
+  //Only save the back ground when requested
+  if(savebackground)
+  {
+    //Save the screen under the clock menu box (different rectangle than the factory
+    //menu one, so both can live in displaybuffer2 at the same time)
+    display_set_destination_buffer(displaybuffer2);
+    display_copy_rect_from_screen(xpos, ypos, CLOCK_MENU_WIDTH, CLOCK_MENU_HEIGHT);
+
+    //Setup the menu in a separate buffer to be able to display without flicker
+    display_set_screen_buffer(displaybuffer1);
+  }
+
+  //Display the actual menu
+  ui_display_clock_menu(xpos, ypos);
+
+  //Only need to copy it onto the actual screen when the background is saved
+  if(savebackground)
+  {
+    //Set source and target for getting it on the actual screen
+    display_set_source_buffer(displaybuffer1);
+    display_set_screen_buffer((uint16 *)maindisplaybuffer);
+
+    //Show the clock menu box on the screen
+    display_copy_rect_to_screen(xpos, ypos, CLOCK_MENU_WIDTH, CLOCK_MENU_HEIGHT);
+  }
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+
+void ui_close_clock_menu(uint16 xpos, uint16 ypos)
+{
+  //Set source and target for getting it on the actual screen
+  display_set_source_buffer(displaybuffer2);
+  display_set_screen_buffer((uint16 *)maindisplaybuffer);
+
+  //Remove the clock menu box from the screen
+  display_copy_rect_to_screen(xpos, ypos, CLOCK_MENU_WIDTH, CLOCK_MENU_HEIGHT);
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+
+void ui_display_clock_menu(uint16 xpos, uint16 ypos)
+{
+  int i;
+
+  //Draw the menu outline slightly lighter then the background
+  display_set_fg_color(COLOR_DARK_GREY_3);
+  display_draw_rect(xpos, ypos, CLOCK_MENU_WIDTH, CLOCK_MENU_HEIGHT);
+
+  //Fill the lighter background of the menu area
+  display_set_fg_color(COLOR_DARK_GREY_1);
+  display_fill_rect(xpos + 1, ypos + 1, CLOCK_MENU_WIDTH - 2, CLOCK_MENU_HEIGHT - 2);
+
+  //Draw the menu high lighter box for the selected item
+  display_draw_highlight_rect(xpos + 4, ypos + 4 + (clockmenuhighlighteditem * 31), &factory_menu_highlight_box);
+
+  display_set_font(&font_1);
+
+  //Draw the label per line; the currently active clock is shown in green
+  for(i=0;i<5;i++)
+  {
+    if((i < 4) && (clock_menu_p1b[i] == sampling_clock_p1b))
+    {
+      display_set_fg_color(COLOR_GREEN);
+    }
+    else
+    {
+      display_set_fg_color(COLOR_WHITE);
+    }
+
+    display_text(xpos + 12, ypos + 11 + (i * 31), clock_menu_texts[i]);
+  }
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//Overlay menu compositing
+//Menus that are plain overlays on the trace area are redrawn into the current draw buffer on every
+//display frame, so the traces keep updating beneath them. Full screen states (file view, item view)
+//are not composited; for those the trace display stays disabled as before.
+//----------------------------------------------------------------------------------------------------------------------------------
+
+uint32 ui_menu_composite_active(void)
+{
+  switch(navigationstate)
+  {
+    case NAV_MAIN_MENU_HANDLING:
+    case NAV_CHANNEL_MENU_HANDLING:
+    case NAV_SLIDER_HANDLING:
+    case NAV_ON_OFF_HANDLING:
+    case NAV_FACTORY_MENU_HANDLING:
+    case NAV_CLOCK_MENU_HANDLING:
+      return(1);
+  }
+
+  return(0);
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+
+void ui_redraw_active_menu(void)
+{
+  uint16 y;
+
+  switch(navigationstate)
+  {
+    case NAV_MAIN_MENU_HANDLING:
+      ui_display_main_menu();
+      break;
+
+    case NAV_CHANNEL_MENU_HANDLING:
+      if(currentsettings)
+      {
+        ui_display_channel_menu(currentsettings);
+      }
+      break;
+
+    case NAV_SLIDER_HANDLING:
+      //The slider belongs to a main menu item, so draw the menu first
+      ui_display_main_menu();
+
+      //Same position selection as the state machine slider handling
+      y = SLIDER_SCREEN_YPOS;
+
+      if(menuitem == MAIN_MENU_GRID_BRIGHTNESS)
+      {
+        y = SLIDER_GRID_YPOS;
+      }
+
+      ui_display_slider(SLIDER_XPOS, y);
+      break;
+
+    case NAV_ON_OFF_HANDLING:
+      //The on off setting belongs to a main menu item, so draw the menu first
+      ui_display_main_menu();
+
+      //Same position selection as the state machine on off close handling
+      y = ON_OFF_SETTING_50_PERCENT_YPOS;
+
+      if(menuitem == MAIN_MENU_XY_MODE)
+      {
+        y = ON_OFF_SETTING_XY_MODE_YPOS;
+      }
+
+      ui_display_on_off_setting(ON_OFF_SETTING_XPOS, y);
+      break;
+
+    case NAV_FACTORY_MENU_HANDLING:
+      //The factory menu belongs to a main menu item, so draw the menu first
+      ui_display_main_menu();
+
+      ui_display_factory_menu(FACTORY_MENU_XPOS, FACTORY_MENU_YPOS);
+      break;
+
+    case NAV_CLOCK_MENU_HANDLING:
+      //The clock menu sits on top of the factory menu, which sits on the main menu
+      ui_display_main_menu();
+
+      ui_display_factory_menu(FACTORY_MENU_XPOS, FACTORY_MENU_YPOS);
+
+      ui_display_clock_menu(CLOCK_MENU_XPOS, CLOCK_MENU_YPOS);
       break;
   }
 }

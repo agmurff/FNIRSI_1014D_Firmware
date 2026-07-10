@@ -1,5 +1,6 @@
 //----------------------------------------------------------------------------------------------------------------------------------
 
+#include "arm32.h"
 #include "statemachine.h"
 #include "timer.h"
 #include "uart.h"
@@ -7,6 +8,7 @@
 #include "menu_1014d.h"
 #include "scope_functions.h"
 #include "display_lib.h"
+#include "clock_synthesizer.h"
 
 #include "variables.h"
 
@@ -28,7 +30,7 @@ NAVIGATIONFUNCTION mainmenustartactions[] =
   sm_open_on_off_setting,                    //X-Y mode curve
   sm_do_base_calibration,                    //Base calibration
   sm_start_usb_export,                       //USB export
-  0                                          //Factory settings
+  sm_open_factory_menu                       //Factory settings
 };
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -54,6 +56,10 @@ void sm_init(void)
   //For the user input only the basic scope control buttons and rotary dials are active after startup
   fileviewstate   = FILE_VIEW_NO_ACTION;
   buttondialstate = BUTTON_DIAL_NORMAL_HANDLING;
+
+  //Belt-and-suspenders: make sure range properties (and thus trig pos min/max) are computed
+  //for the current timebase before any rotary position adjustments can occur.
+  scope_calculate_sample_range_properties();
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -67,33 +73,6 @@ void sm_handle_user_input(void)
   {
     //No active command so skip the rest
     return;
-  }
-
-  //Boot-source switch: F1 double-tap → FEL mode, F2 → SD boot
-  //Checked before normal dispatch so boot commands always work
-  {
-    static uint8 fel_armed = 0;
-    if( toprocesscommand == UIC_BUTTON_F1 ) {
-      if( fel_armed ) {
-        *STARTUP_CONFIG_ADDRESS = 2;
-        sd_card_write(DISPLAY_CONFIG_SECTOR, 1, (uint8 *)0x81BFFC00);
-        *WDOG_CFG_REG  = 1;
-        *WDOG_MODE_REG = 1;
-        *WDOG_CTRL_REG = (0x0A57 << 1) | 1;
-        while(1);
-      } else {
-        fel_armed = 1;
-      }
-    } else if( toprocesscommand == UIC_BUTTON_F2 ) {
-      *STARTUP_CONFIG_ADDRESS = 1;
-      sd_card_write(DISPLAY_CONFIG_SECTOR, 1, (uint8 *)0x81BFFC00);
-      *WDOG_CFG_REG  = 1;
-      *WDOG_MODE_REG = 1;
-      *WDOG_CTRL_REG = (0x0A57 << 1) | 1;
-      while(1);
-    } else if( toprocesscommand != 0 ) {
-      fel_armed = 0;
-    }
   }
 
   //Check if the power off command is given
@@ -176,6 +155,14 @@ void sm_handle_user_input(void)
 
       case NAV_ON_OFF_HANDLING:
         sm_handle_on_off_actions();
+        break;
+
+      case NAV_FACTORY_MENU_HANDLING:
+        sm_handle_factory_menu_actions();
+        break;
+
+      case NAV_CLOCK_MENU_HANDLING:
+        sm_handle_clock_menu_actions();
         break;
 
       case NAV_MEASUREMENTS_MENU_HANDLING:
@@ -772,6 +759,13 @@ void sm_button_dial_normal_handling(void)
 
     case UIC_BUTTON_AUTO:
       scope_do_auto_setup();
+
+      //Auto setup forces a short time base but does not clear long time base mode or
+      //recalculate the display range and trigger position bounds, so finish that here
+      scopesettings.long_mode = 0;
+      fpga_set_time_base(scopesettings.timeperdiv);
+      scope_calculate_sample_range_properties();
+      ui_display_time_per_division();
       break;
       
     case UIC_BUTTON_MENU:
@@ -860,14 +854,21 @@ void sm_button_dial_normal_handling(void)
       //Display the new edge on the screen and activate it in the FPGA
       ui_display_trigger_channel();
       fpga_set_trigger_channel();
-      
+
       //Set the trigger level pointer to match the newly selected channel
       scope_calculate_trigger_vertical_position();
+
+      //The level maps through the new channel's position/sensitivity: push it too, or a
+      //pending normal/single mode conversion keeps waiting on the old channel's level
+      fpga_set_trigger_level();
       break;
 
     case UIC_BUTTON_TRIG_50_PERCENT:
       //Set the trigger vertical position position to match the new trigger level
       scope_do_50_percent_trigger_setup();
+
+      //Push the recalculated level so a pending normal/single conversion can complete
+      fpga_set_trigger_level();
       break;
 
     case UIC_BUTTON_F1:
@@ -1298,6 +1299,13 @@ void sm_set_trigger_position(void)
   //Adjust the setting based on the given value
   scopesettings.triggerhorizontalposition += speedvalue;
 
+  //Defensive: if range bounds are not yet valid for current timebase, (re)compute them.
+  //This can happen on first boot before explicit calc, or after certain reset paths.
+  if (trigger_position_max <= trigger_position_min)
+  {
+    scope_calculate_sample_range_properties();
+  }
+
   //Check if still in allowed range
   if(scopesettings.triggerhorizontalposition < trigger_position_min)
   {
@@ -1362,6 +1370,12 @@ void sm_set_trigger_level(void)
   
   //Show the new value on the screen
   ui_display_trigger_vertical_position();
+
+  //Push the new level to the FPGA right away (the 1013D touch flow does the same in
+  //menu.c). The acquisition loop only re-sends it when arming a new conversion, so in
+  //normal/single trigger mode a pending conversion armed with an out-of-range level
+  //would otherwise never see the level move back into the signal: permanent deadlock
+  fpga_set_trigger_level();
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -1379,8 +1393,11 @@ void sm_set_trigger_origin(uint32 doleveltoo)
     {
       //Set the trigger vertical position position to match the new trigger level
       scope_do_50_percent_trigger_setup();
+
+      //Push the recalculated level so a pending normal/single conversion can complete
+      fpga_set_trigger_level();
     }
-    
+
     //Show the new setting on the screen
     ui_display_trigger_horizontal_position();
   }
@@ -1402,28 +1419,79 @@ void sm_set_time_base(void)
 {
   //Adjust the setting based on the given input
   uint8 newvalue = scopesettings.timeperdiv + setvalue;
+  uint8 minvalue = 0;
+  uint8 maxvalue = (sizeof(time_div_texts) / sizeof(int8 *)) - 1;
 
-  //Check if not already on the lowest setting (10nS/div)
-  if((newvalue >= 0) && (newvalue <= ((sizeof(time_div_texts) / sizeof(int8 *)) - 1)))
+  //In wave view mode stay within the current long or short time base regime, like the touch flow does
+  if(scopesettings.waveviewmode)
   {
-    //Go down in time by adding one to the setting
+    if(scopesettings.long_mode)
+    {
+      maxvalue = 10;
+    }
+    else
+    {
+      minvalue = 11;
+    }
+  }
+
+  //Check if the new setting is within the allowed range
+  if((newvalue >= minvalue) && (newvalue <= maxvalue))
+  {
     scopesettings.timeperdiv = newvalue;
+
+    //Same regime handling as scope_set_timebase(): scope mode skips the 50ms and 20ms settings
+    //when crossing the long/short time base boundary
+    if(!scopesettings.waveviewmode)
+    {
+      if(scopesettings.timeperdiv == 9)  { scopesettings.timeperdiv = 11; scopesettings.long_mode = 0; }
+      if(scopesettings.timeperdiv == 10) { scopesettings.timeperdiv = 8;  scopesettings.long_mode = 1; }
+    }
+
+    //Long time base
+    if(scopesettings.timeperdiv < 11)
+    {
+      scopesettings.long_mode = 1;
+
+      //Send the time base command for the long time base
+      fpga_set_long_timebase(scopesettings.timeperdiv);
+    }
+    else
+    {
+      //Short time base
+      scopesettings.long_mode = 0;
+      scopesettings.display_data_done = 1;
+
+      //Send the time base command for the short time base
+      fpga_set_time_base(scopesettings.timeperdiv);
+    }
 
     //For time per div set with the dial the direct relation between the time per div and the sample rate is set
     //but only when the scope is running. Otherwise the sample rate of the acquired buffer still is valid.
-    if(scopesettings.runstate == RUN_STATE_RUNNING)
+    if((scopesettings.runstate == RUN_STATE_RUNNING) || scopesettings.long_mode || (scopesettings.triggermode == 1))
     {
       //Set the sample rate that belongs to the selected time per div setting
       scopesettings.samplerate = time_per_div_sample_rate[scopesettings.timeperdiv];
+
+      //Set the new setting in the FPGA
+      fpga_set_sample_rate(scopesettings.samplerate);
+
+      //In single trigger mode a time base change arms a new acquisition
+      if(scopesettings.triggermode == 1)
+      {
+        scopesettings.runstate = RUN_STATE_RUNNING;
+
+        //Display the changed state
+        ui_display_run_stop_text();
+      }
+
+      scope_preset_values();
     }
 
-    //Set the new setting in the FPGA
-    fpga_set_sample_rate(scopesettings.samplerate);
-
-    //Show he new setting on the display
+    //Show the new setting on the display
     ui_display_time_per_division();
     ui_display_trigger_horizontal_position();
-  
+
     //On a change of sample rate or time per division it is necessary to re calculate the values for determining the number of point to display
     scope_calculate_sample_range_properties();
   }
@@ -2366,19 +2434,25 @@ void sm_select_channel_option(void)
   switch(menuitem)
   {
     case 0:
-      //Select the next or the previous magnification based on setvalue
-      currentsettings->magnification += setvalue;
-      
-      //Limit on the extremes
-      if(currentsettings->magnification < 0)
+    {
+      //Select the next or the previous probe setting based on setvalue. The probe UI
+      //cycles 1:1 / 10:1 / 100:1 while magnification indexes the 7-row Atlan4 tables
+      //(rows 1, 2 and 5), so step through the 3-entry probe space and translate back
+      int16 probeindex = (int16)ui_probe_index_from_magnification(currentsettings->magnification) + setvalue;
+
+      //Wrap around on the extremes
+      if(probeindex < 0)
       {
-        currentsettings->magnification = 2;
+        probeindex = 2;
       }
-      else if(currentsettings->magnification > 2)
+      else if(probeindex > 2)
       {
-        currentsettings->magnification = 0;
+        probeindex = 0;
       }
-      
+
+      currentsettings->magnification = probe_magnification_from_index[probeindex];
+    }
+
       //Show the new setting on the screen
       ui_display_channel_menu_probe_magnification_select(currentsettings);
       ui_display_channel_probe(currentsettings);
@@ -2502,6 +2576,263 @@ void sm_open_on_off_setting(void)
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
+//Factory settings menu (restore defaults, reboot, FEL firmware update)
+//----------------------------------------------------------------------------------------------------------------------------------
+
+void sm_open_factory_menu(void)
+{
+  //Switch to the factory menu navigation state
+  navigationstate = NAV_FACTORY_MENU_HANDLING;
+
+  //Always start on the first item
+  onoffhighlighteditem = 0;
+
+  //Show the factory menu and save the background for closing
+  ui_open_factory_menu(FACTORY_MENU_XPOS, FACTORY_MENU_YPOS, 1);
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+
+void sm_handle_factory_menu_actions(void)
+{
+  int16 newitem;
+
+  switch(toprocesscommand)
+  {
+    case UIC_BUTTON_NAV_LEFT:
+      //Close only this menu and return to the main menu handling
+      ui_close_factory_menu(FACTORY_MENU_XPOS, FACTORY_MENU_YPOS);
+      navigationstate = NAV_MAIN_MENU_HANDLING;
+      break;
+
+    case UIC_ROTARY_SEL_ADD:
+    case UIC_ROTARY_SEL_SUB:
+    case UIC_BUTTON_NAV_UP:
+    case UIC_BUTTON_NAV_DOWN:
+      //Select the next or previous line based on the set value
+      newitem = onoffhighlighteditem - setvalue;
+
+      //Limit it on the range for this menu
+      if(newitem < 0)
+      {
+        newitem = 3;
+      }
+      else if(newitem > 3)
+      {
+        newitem = 0;
+      }
+
+      onoffhighlighteditem = newitem;
+
+      ui_display_factory_menu(FACTORY_MENU_XPOS, FACTORY_MENU_YPOS);
+      break;
+
+    case UIC_BUTTON_NAV_OK:
+    case UIC_BUTTON_NAV_RIGHT:
+      //Execute the selected action
+      switch(onoffhighlighteditem)
+      {
+        case 0:
+          sm_do_factory_reset();
+          break;
+
+        case 1:
+          sm_reboot_scope();
+          break;
+
+        case 2:
+          sm_enter_fel_mode();
+          break;
+
+        case 3:
+          sm_open_clock_menu();
+          break;
+      }
+      break;
+  }
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//Sampling clock menu (manual clock selection for sawtooth A/B testing + the auto search)
+//----------------------------------------------------------------------------------------------------------------------------------
+
+void sm_open_clock_menu(void)
+{
+  int i;
+
+  //Switch to the clock menu navigation state
+  navigationstate = NAV_CLOCK_MENU_HANDLING;
+
+  //Start on the currently active clock (falls back to the first item)
+  clockmenuhighlighteditem = 0;
+
+  for(i=0;i<4;i++)
+  {
+    if(clock_menu_p1b[i] == sampling_clock_p1b)
+    {
+      clockmenuhighlighteditem = i;
+    }
+  }
+
+  //Show the clock menu and save the background for closing
+  ui_open_clock_menu(CLOCK_MENU_XPOS, CLOCK_MENU_YPOS, 1);
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//Switch the Si5351 sampling clock while the scope keeps running. Not persisted: a power
+//cycle always comes back at the stock 50 MHz.
+
+static void sm_set_sampling_clock(uint8 p1b)
+{
+  if(p1b != sampling_clock_p1b)
+  {
+    //Dim during the switch: the PLL bounce glitches the FPGA's backlight PWM
+    fpga_set_backlight_brightness(0x0800);
+
+    clock_synthesizer_apply_sampling_clock(p1b);
+
+    timer0_delay(10);
+    fpga_set_translated_brightness();
+  }
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+
+static void sm_do_clock_auto_search(void)
+{
+  //This is a blocking action that draws its own status; make sure it lands on the
+  //visible screen and not in one of the compositing buffers
+  display_set_screen_buffer((uint16 *)maindisplaybuffer);
+
+  //Dim for the duration: every candidate switch bounces the PLL the FPGA backlight
+  //PWM runs from
+  fpga_set_backlight_brightness(0x0800);
+
+  auto_detect_max_clean_sampling_clock();
+
+  fpga_set_translated_brightness();
+
+  //Close the whole menu stack; the search summary lingers on screen inside the call above
+  sm_close_menu();
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+
+void sm_handle_clock_menu_actions(void)
+{
+  int16 newitem;
+
+  switch(toprocesscommand)
+  {
+    case UIC_BUTTON_NAV_LEFT:
+      //Close only this menu and return to the factory menu handling
+      ui_close_clock_menu(CLOCK_MENU_XPOS, CLOCK_MENU_YPOS);
+      navigationstate = NAV_FACTORY_MENU_HANDLING;
+      break;
+
+    case UIC_ROTARY_SEL_ADD:
+    case UIC_ROTARY_SEL_SUB:
+    case UIC_BUTTON_NAV_UP:
+    case UIC_BUTTON_NAV_DOWN:
+      //Select the next or previous line based on the set value
+      newitem = (int16)clockmenuhighlighteditem - setvalue;
+
+      //Limit it on the range for this menu
+      if(newitem < 0)
+      {
+        newitem = 4;
+      }
+      else if(newitem > 4)
+      {
+        newitem = 0;
+      }
+
+      clockmenuhighlighteditem = newitem;
+
+      ui_display_clock_menu(CLOCK_MENU_XPOS, CLOCK_MENU_YPOS);
+      break;
+
+    case UIC_BUTTON_NAV_OK:
+    case UIC_BUTTON_NAV_RIGHT:
+      if(clockmenuhighlighteditem < 4)
+      {
+        //Apply the selected clock and stay in the menu: the traces keep updating live
+        //beneath it, so different clocks can be compared by eye without leaving
+        sm_set_sampling_clock(clock_menu_p1b[clockmenuhighlighteditem]);
+
+        //Redraw so the green active-clock marker moves to the new selection
+        ui_display_clock_menu(CLOCK_MENU_XPOS, CLOCK_MENU_YPOS);
+      }
+      else
+      {
+        //Run the automatic clock search
+        sm_do_clock_auto_search();
+      }
+      break;
+  }
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+
+void sm_do_factory_reset(void)
+{
+  //Reset the settings to the defaults, persist them and restart the scope so the normal
+  //startup path loads and applies them everywhere (FPGA, screen, state machine)
+  scope_reset_config_data();
+  scope_save_configuration_data();
+
+  sm_restart_system();
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+
+void sm_reboot_scope(void)
+{
+  //Keep the current settings over the restart
+  scope_save_configuration_data();
+
+  //Restart. Holding a key while the scope reboots opens the boot loader menu
+  //(F1 PECO firmware, F2 original FNIRSI firmware, F3 FEL mode)
+  sm_restart_system();
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+
+void sm_enter_fel_mode(void)
+{
+  uint32 address = 0xFFFF0020;
+
+  //Keep the current settings; a FEL session normally ends in a reset or power cycle
+  scope_save_configuration_data();
+
+  //Show the same message the boot loader FEL option shows
+  display_set_screen_buffer((uint16 *)maindisplaybuffer);
+  display_set_fg_color(COLOR_BLACK);
+  display_fill_rect(0, 0, 800, 480);
+  display_set_fg_color(COLOR_WHITE);
+  display_set_font(&font_1);
+  display_text(360, 230, "Running FEL mode");
+
+  //No more interrupt handling; the boot ROM sets up its own environment
+  arm32_interrupt_disable();
+
+  //Jump to the boot ROM FEL entry, like the boot loader menu FEL option does
+  __asm__ __volatile__ ("mov pc, %0\n" :"=r"(address):"0"(address));
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+
+void sm_restart_system(void)
+{
+  //Shortest watchdog timeout on the whole system, enable with the key field and wait for the reset
+  *WDOG_CFG_REG  = 1;
+  *WDOG_MODE_REG = 1;
+  *WDOG_CTRL_REG = (0x0A57 << 1) | 1;
+
+  while(1);
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
 
 void sm_do_base_calibration(void)
 {
@@ -2522,6 +2853,10 @@ void sm_do_base_calibration(void)
     {
       //Show that it completed with success
       ui_show_calibration_message(CALIBRATION_STATE_SUCCESS);
+
+      //Persist the results (DC offsets and ADC interleave compensation). Without this
+      //they only live in RAM and a power cycle silently reverts to the previous state
+      scope_save_configuration_data();
     }
     else
     {

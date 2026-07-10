@@ -129,13 +129,14 @@ build: .build-post
 	cp $(BOOTLOADER_BASE) dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin
 	./flashfilepacker -o dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin -i dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin -l $(BOOTLOADER_OFFSET)
 
-# Variant-named copies so you always know which build you're flashing
+# Variant-named copies so you always know which build you're flashing.
+# Skipped for the 1013D variant where the prefix equals the base name (cp onto itself fails).
 	$(eval VARIANT_PREFIX:=$(shell grep -q 'PORT_1014D 1' port_config.h && echo fnirsi_1014d || echo fnirsi_1013d))
-	cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin \
-		dist/Debug/GNU_ARM-Linux/$(VARIANT_PREFIX)_scope.bin
-	cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin \
-		dist/Debug/GNU_ARM-Linux/$(VARIANT_PREFIX).bin
-	@echo ">>> Also: dist/Debug/GNU_ARM-Linux/$(VARIANT_PREFIX)_scope.bin + $(VARIANT_PREFIX).bin"
+	@if [ "$(VARIANT_PREFIX)" != "fnirsi_1013d" ]; then \
+		cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin dist/Debug/GNU_ARM-Linux/$(VARIANT_PREFIX)_scope.bin; \
+		cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin dist/Debug/GNU_ARM-Linux/$(VARIANT_PREFIX).bin; \
+		echo ">>> Also: dist/Debug/GNU_ARM-Linux/$(VARIANT_PREFIX)_scope.bin + $(VARIANT_PREFIX).bin"; \
+	fi
 
 # Auto load firmware with FEL
 #	sudo ./dist/Debug/GNU_ARM-Linux/sunxi-fel -p write 0x7FFFFFE0 dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin exe 0x80000000

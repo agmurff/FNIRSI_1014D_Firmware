@@ -46,6 +46,7 @@ OBJECTFILES= \
 	${OBJECTDIR}/ffunicode.o \
 	${OBJECTDIR}/fnirsi_1013d_scope.o \
 	${OBJECTDIR}/font_0.o \
+	${OBJECTDIR}/fonts_1014d.o \
 	${OBJECTDIR}/font_1.o \
 	${OBJECTDIR}/font_2.o \
 	${OBJECTDIR}/font_3.o \
@@ -82,7 +83,7 @@ OBJECTFILES= \
 
 
 # C Compiler Flags
-CFLAGS=-Wall -Wno-write-strings -Wno-char-subscripts -fno-stack-protector -DNO_STDLIB=1 -mcpu='arm926ej-s' -O2 -mfloat-abi=soft -Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=int-conversion -fcommon
+CFLAGS=-Wall -Wno-write-strings -Wno-char-subscripts -fno-stack-protector -DNO_STDLIB=1 -mcpu='arm926ej-s' -O2 -mfloat-abi=soft -Wno-error=implicit-function-declaration -Wno-error=implicit-int -Wno-error=int-conversion -fcommon -fno-builtin-strcpy
 
 # CC Compiler Flags
 CCFLAGS=
@@ -159,6 +160,11 @@ ${OBJECTDIR}/font_0.o: font_0.c
 	${MKDIR} -p ${OBJECTDIR}
 	${RM} "$@.d"
 	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/font_0.o font_0.c
+
+${OBJECTDIR}/fonts_1014d.o: fonts_1014d.c
+	${MKDIR} -p ${OBJECTDIR}
+	${RM} "$@.d"
+	$(COMPILE.c) -g -MMD -MP -MF "$@.d" -o ${OBJECTDIR}/fonts_1014d.o fonts_1014d.c
 
 ${OBJECTDIR}/font_1.o: font_1.c
 	${MKDIR} -p ${OBJECTDIR}

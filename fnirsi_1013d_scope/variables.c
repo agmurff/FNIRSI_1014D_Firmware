@@ -29,9 +29,15 @@ uint8  onoffhighlighteditem = 0;
 int16  menuitem = 0;
 uint8  measurementslot = 0;
 PCHANNELSETTINGS currentsettings = 0;
-double disp_xrange;
-int32  trigger_position_min;
-int32  trigger_position_max;
+double disp_xrange = 360.0;     // sane default until first calc (half of ~720 px trace width)
+int32  trigger_position_min = 5;
+int32  trigger_position_max = 725;
+
+// Sampling clock configuration for overclocking experiments (1014D Si5351 CLK1).
+// ms1_p1b controls the MultiSynth divider for the ADC sampling clock.
+// 0x06 = 50 MHz stock. Lower = higher frequency (see clock_synthesizer.c comments).
+uint8  sampling_clock_p1b = 0x06;
+double sampling_clock_scale = 1.0;   // actual_fs / nominal_50MHz_fs ; used to scale rate-dependent math
 
 //----------------------------------------------------------------------------------------------------------------------------------
 //Timer data
@@ -505,6 +511,27 @@ const uint8 viable_time_per_div[29][35] =
 
 //----------------------------------------------------------------------------------------------------------------------------------
 
+#if PORT_1014D
+//The P14 bottom bar prints these right-aligned next to its own "DIV :" label, so no
+//"/div" suffix (pecostm32's 24-entry table was suffix-free too; the suffixed strings
+//overwrote the label for anything longer than "5ns/div")
+const int8 *time_div_texts[35] =
+{ //long time base
+  "50s",   "20s",   "10s",
+  "5s",    "2s",    "1s",
+  "500ms", "200ms", "100ms",
+  "50ms",  "20ms",
+  //sort time base
+  "200ms", "100ms", "50ms",
+  "20ms",  "10ms",  "5ms",
+  "2ms",   "1ms",   "500us",
+  "200us", "100us", "50us",
+  "20us",  "10us",  "5us",
+  "2us",   "1us",   "500ns",
+  "200ns", "100ns", "50ns",
+  "20ns",  "10ns",  "5ns"
+ };
+#else
 const int8 *time_div_texts[35] =
 { //long time base
   "50s/div",     "20s/div",   "10s/div",
@@ -521,6 +548,7 @@ const int8 *time_div_texts[35] =
   "200ns/div", "100ns/div",  "50ns/div",
    "20ns/div",  "10ns/div",   "5ns/div"
  };
+#endif
 
 const int8 time_div_text_x_offsets[35] =
 { //long time base
@@ -658,7 +686,21 @@ const int8 *volt_div_texts[7][7] =//[3][7]
   { "500V/div", "250V/div", "100V/div",   "50V/div",   "20V/div",   "10V/div",    "5V/div" },   //100
   {  "5kV/div","2.5kV/div",  "1kV/div",  "500V/div",  "200V/div",  "100V/div",   "50V/div" }    //1000
 };
- 
+
+//Same values without the "/div" suffix for the 1014D top bar: its sensitivity field is
+//only 57 pixels wide (right aligned next to a fixed "DIV :" label) and the long texts
+//overflow it to the left, leaving stale leading characters when the setting changes
+const char *volt_div_texts_short[7][7] =
+{
+  { "2.5V","1.25V","500mV","250mV","100mV", "50mV", "25mV" },   //0.5
+  {   "5V", "2.5V",   "1V","500mV","200mV","100mV", "50mV" },   //1
+  {  "50V",  "25V",  "10V",   "5V",   "2V",   "1V","500mV" },   //10
+  { "100V",  "50V",  "20V",  "10V",   "4V",   "2V",   "1V" },   //20
+  { "250V", "125V",  "50V",  "25V",  "10V",   "5V", "2.5V" },   //50
+  { "500V", "250V", "100V",  "50V",  "20V",  "10V",   "5V" },   //100
+  {  "5kV","2.5kV",  "1kV", "500V", "200V", "100V",  "50V" }    //1000
+};
+
 //for sensitivity channel menu //v0.26o
 const int16 volt_div_texts_x_offsets[7][7] = 
 {

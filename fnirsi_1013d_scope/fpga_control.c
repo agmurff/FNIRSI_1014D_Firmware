@@ -1046,8 +1046,16 @@ void fpga_read_adc_data(PCHANNELSETTINGS settings)
     //Sum the raw data for ADC difference calibration
     sum += sample;
 
-    //Compensate the value for ADC in equality
-    sample += settings->compensation;
+    //Compensate the value for ADC inequality (interleave sawtooth correction).
+    //Only apply at sample rate 0 (200MSa/s), the only rate where the dual-ADC
+    //interleave is active: that covers 500ns/div and faster (timeperdiv >= 28).
+    //At the lower rates the two readout paths are not distinct physical samples;
+    //applying a nonzero comp there creates a hedgehog/ripple that is absent with
+    //defaults (0,0).
+    if (scopesettings.samplerate == 0)
+    {
+      sample += settings->compensation;
+    }
      
     //Check if sample became negative
     if(sample < 0)
@@ -1069,8 +1077,8 @@ void fpga_read_adc_data(PCHANNELSETTINGS settings)
     if (sample == 255)  settings->ADoverload |= 254;    //=255
  //*****************************************************************************   
     
-    //Check if busy with second ADC data
-    if(settings->checkfirstadc)
+    //Check if busy with second ADC data (only relevant when the interleave is active)
+    if(settings->checkfirstadc && scopesettings.samplerate == 0)
     {
       //When ADC1 compensation is positive, ADC1 bottoms out on this value
       //Near the top ADC2 reaches the top value first, so same method is needed
@@ -1382,7 +1390,9 @@ uint16 fpga_average_trace_data(PCHANNELSETTINGS settings)
     FPGA_PULSE_CLK();
  
     //Read the data CH1 or CH2
-    datatmp = FPGA_GET_DATA() + settings->adc1compensation; 
+    datatmp = FPGA_GET_DATA();
+    if (scopesettings.timeperdiv >= 29)
+      datatmp += settings->adc1compensation;
     
     //Check limits
     if (datatmp > 255)  datatmp = 255;
@@ -1427,7 +1437,9 @@ uint16 fpga_average_trace_data_long(PCHANNELSETTINGS settings)
     FPGA_PULSE_CLK();
  
     //Read the data CH1 or CH2
-    datatmp = FPGA_GET_DATA() + settings->adc1compensation; 
+    datatmp = FPGA_GET_DATA();
+    if (scopesettings.timeperdiv >= 29)
+      datatmp += settings->adc1compensation;
     
     //Check limits
     if (datatmp > 255)  datatmp = 255;

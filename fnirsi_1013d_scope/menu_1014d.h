@@ -67,6 +67,18 @@
 #define ON_OFF_SETTING_BOX_WIDTH         68
 #define ON_OFF_SETTING_BOX_HEIGHT        65
 
+//Four items of 31 each plus the 8 border pixels; moved up so the taller menu stays on screen
+#define FACTORY_MENU_XPOS               191
+#define FACTORY_MENU_YPOS               340
+#define FACTORY_MENU_WIDTH              170
+#define FACTORY_MENU_HEIGHT             132
+
+//Sampling clock menu, opens next to the factory menu (five items of 31 each plus border)
+#define CLOCK_MENU_XPOS                 363
+#define CLOCK_MENU_YPOS                 309
+#define CLOCK_MENU_WIDTH                170
+#define CLOCK_MENU_HEIGHT               163
+
 #define ON_OFF_SELECT_X_OFFSET            4
 #define ON_OFF_SELECT_ON_Y_OFFSET         4
 #define ON_OFF_SELECT_OFF_Y_OFFSET       36
@@ -139,6 +151,11 @@ void ui_display_waiting_triggered_text(uint32 state);
 
 void ui_display_channel_settings(PCHANNELSETTINGS settings);
 
+//Translation between the 3-entry probe selection (1:1, 10:1, 100:1) and the 7-row
+//Atlan4 magnification tables (rows 1, 2 and 5 respectively)
+extern const uint8 probe_magnification_from_index[3];
+uint32 ui_probe_index_from_magnification(uint32 magnification);
+
 void ui_display_channel_probe(PCHANNELSETTINGS settings);
 void ui_display_channel_coupling(PCHANNELSETTINGS settings);
 void ui_display_channel_sensitivity(PCHANNELSETTINGS settings);
@@ -169,8 +186,26 @@ void ui_open_on_off_setting(uint16 xpos, uint16 ypos, uint32 savebackground);
 void ui_close_on_off_setting(uint16 xpos, uint16 ypos);
 void ui_display_on_off_setting(uint16 xpos, uint16 ypos);
 
+void ui_open_factory_menu(uint16 xpos, uint16 ypos, uint32 savebackground);
+void ui_close_factory_menu(uint16 xpos, uint16 ypos);
+void ui_display_factory_menu(uint16 xpos, uint16 ypos);
+
+void ui_open_clock_menu(uint16 xpos, uint16 ypos, uint32 savebackground);
+void ui_close_clock_menu(uint16 xpos, uint16 ypos);
+void ui_display_clock_menu(uint16 xpos, uint16 ypos);
+
+//Highlight index for the sampling clock menu (the shared onoffhighlighteditem stays on
+//the factory menu item that opened it)
+extern uint32 clockmenuhighlighteditem;
+
+//p1b divider value per clock menu item 0-3 (item 4 is the auto search)
+extern const uint8 clock_menu_p1b[4];
+
 void ui_display_trigger_level_arrow(uint32 direction);
 void ui_display_trigger_position_arrow(uint32 direction);
+
+uint32 ui_menu_composite_active(void);
+void ui_redraw_active_menu(void);
 
 //----------------------------------------------------------------------------------------------------------------------------------
 // Functions for displaying the measurement values on the measurements slots

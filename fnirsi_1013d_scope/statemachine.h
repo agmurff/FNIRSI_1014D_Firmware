@@ -118,6 +118,8 @@ enum NavigationStates
   NAV_ON_OFF_HANDLING,
   NAV_MEASUREMENTS_MENU_HANDLING,
   NAV_CHANNEL_MENU_HANDLING,
+  NAV_FACTORY_MENU_HANDLING,
+  NAV_CLOCK_MENU_HANDLING,
 };
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -247,6 +249,16 @@ void sm_open_on_off_setting(void);
 void sm_do_base_calibration(void);
 
 void sm_start_usb_export(void);
+
+void sm_open_factory_menu(void);
+void sm_handle_factory_menu_actions(void);
+void sm_do_factory_reset(void);
+void sm_reboot_scope(void);
+void sm_enter_fel_mode(void);
+void sm_restart_system(void);
+
+void sm_open_clock_menu(void);
+void sm_handle_clock_menu_actions(void);
 
 void handle_right_basic_menu_touch(void);
 void handle_right_volts_div_menu_touch(void);

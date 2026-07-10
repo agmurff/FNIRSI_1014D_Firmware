@@ -63,7 +63,7 @@ uint8 tp_config_data[] =
 
 void tp_i2c_setup(void)
 {
-#ifndef PORT_1014D
+#if !PORT_1014D
   uint8 command;
 
   //08-03-2022. Added for configurable X and Y coordinate swap
@@ -170,7 +170,7 @@ void tp_i2c_setup(void)
 
 void tp_i2c_wait_for_touch_release(void)
 {
-#ifndef PORT_1014D
+#if !PORT_1014D
   //Wait until touch is released
   while(havetouch)
   {
@@ -184,7 +184,7 @@ void tp_i2c_wait_for_touch_release(void)
 
 void tp_i2c_read_status(void)
 {
-#ifndef PORT_1014D
+#if !PORT_1014D
   uint8  status;
   uint8  data[4];
 
@@ -251,7 +251,7 @@ void tp_i2c_read_status(void)
 
 void tp_i2c_send_data(uint8 adr_dev, uint16 reg_addr, uint8 *buffer, uint32 size)
 {
-#ifndef PORT_1014D
+#if !PORT_1014D
   //Start a communication sequence
   tp_i2c_send_start();
   
@@ -286,7 +286,7 @@ void tp_i2c_send_data(uint8 adr_dev, uint16 reg_addr, uint8 *buffer, uint32 size
 
 void tp_i2c_read_data(uint8 adr_dev, uint16 reg_addr, uint8 *buffer, uint32 size)
 {
-#ifndef PORT_1014D
+#if !PORT_1014D
   //Start a communication sequence
   tp_i2c_send_start();
 
@@ -339,7 +339,7 @@ void tp_i2c_read_data(uint8 adr_dev, uint16 reg_addr, uint8 *buffer, uint32 size
 
 void tp_i2c_send_start(void)
 {
-#ifndef PORT_1014D
+#if !PORT_1014D
   //Make sure INT is set as input and the rest of the signals as output
   *PORT_A_CFG_REG = 0xFFFF1101;
 
@@ -373,7 +373,7 @@ void tp_i2c_send_start(void)
 
 void tp_i2c_send_stop(void)
 {
-#ifndef PORT_1014D
+#if !PORT_1014D
   //Make sure INT is set as input and the rest of the signals as output
   *PORT_A_CFG_REG = 0xFFFF1101;
 
@@ -401,7 +401,7 @@ void tp_i2c_send_stop(void)
 
 void tp_i2c_clock_ack(void)
 {
-#ifndef PORT_1014D
+#if !PORT_1014D
   //Make sure INT is set as input and the rest of the signals as output
   *PORT_A_CFG_REG = 0xFFFF1101;
   
@@ -429,7 +429,7 @@ void tp_i2c_clock_ack(void)
 
 void tp_i2c_clock_nack(void)
 {
-#ifndef PORT_1014D
+#if !PORT_1014D
   //Make sure INT is set as input and the rest of the signals as output
   *PORT_A_CFG_REG = 0xFFFF1101;
   
@@ -457,7 +457,7 @@ void tp_i2c_clock_nack(void)
 
 void tp_i2c_send_byte(uint8 data)
 {
-#ifndef PORT_1014D
+#if !PORT_1014D
   int i;
   
   //Make sure INT is set as input and the rest of the signals as output
@@ -506,7 +506,7 @@ void tp_i2c_send_byte(uint8 data)
 
 uint8 tp_i2c_read_byte(void)
 {
-#ifndef PORT_1014D
+#if !PORT_1014D
   int   i;
   uint8 data = 0;
   
@@ -549,7 +549,7 @@ uint8 tp_i2c_read_byte(void)
 
 void tp_delay(uint32 usec)
 {
-#ifndef PORT_1014D
+#if !PORT_1014D
 #if 0
   int i;
   
