@@ -1,3 +1,11 @@
+> **Fork status (2026-07-09, branch `atlan4-base`):** this fork now targets the **FNIRSI
+> 1014D** (benchtop) as well — the tree is Atlan4's 1013D fork v1.00o5 with pecostm32's
+> official 1014D modules grafted on, selected by `fnirsi_1013d_scope/port_config.h`
+> (`PORT_1014D 1`/`0`). The upstream text below (including "won't work on the 1014D") is
+> kept for provenance and describes the original 1013D-only project. Start with
+> **`CLAUDE.md`** (orientation), **`PORT_AUDIT.md`** (port audit + fixes),
+> **`FPGA_NOTES.md`** / **`BOOT_NOTES.md`** (protocol + boot contracts), **`ROADMAP.md`**.
+
 # 27-02-2025
 # Check out EEVblog on this: https://www.eevblog.com/forum/testgear/fnirsi-1013d-100mhz-tablet-oscilloscope/2725/#lastPost
 # Member Atlan there has made improvements to my code and has it's own github page for it. https://github.com/Atlan4/Fnirsi1013D/tree/main/latest%20firmware%20version

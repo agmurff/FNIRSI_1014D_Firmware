@@ -1,5 +1,12 @@
 # PORT_A — 1014D port notes (reconstructed)
 
+> **⚠️ SUPERSEDED (2026-07-09).** This documents the *first-generation* port (`port_a.c/.h`
+> on the `PORT_A` branch). The active work is now on `atlan4-base`, where `port_a.*` were
+> deleted and replaced by modules imported from pecostm32's official 1014D firmware
+> (`clock_synthesizer.*`, `uart.*`, `menu_1014d.*`, `sm_1014d.c`). See `CLAUDE.md`,
+> `AGENTS.md`, and `PORT_AUDIT.md` for the current state. Kept for provenance and hardware
+> notes (pin mapping, Si5351 registers, key-controller protocol) that remain valid.
+
 This branch (`PORT_A`) adapts pecostm32's **1013D** replacement firmware to run on the
 **FNIRSI 1014D**. This file reconstructs what the port does, where it came from, and how it
 was being worked on, so the effort can be picked back up. It is a lab notebook, not a spec —
