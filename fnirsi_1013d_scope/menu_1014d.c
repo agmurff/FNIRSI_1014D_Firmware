@@ -5301,6 +5301,25 @@ void ui_display_clock_menu(uint16 xpos, uint16 ypos)
 
     display_text(xpos + 12, ypos + 11 + (i * 31), clock_menu_texts[i]);
   }
+
+  //Live residual interleave readout while this menu is open: score and worst pair
+  //excursion of the compensated CH1 buffer, recomputed from the current capture on
+  //every composited frame. Watching r/p wander quantifies the "breathing" sawtooth;
+  //only meaningful at the interleaved full rate (samplerate 0 = 500 ns/div and faster)
+  if((scopesettings.samplerate == 0) && scopesettings.channel1.enable)
+  {
+    uint32 peak = 0;
+    uint32 score = measure_high_rate_artifact(&scopesettings.channel1, &peak);
+
+    display_set_fg_color(COLOR_BLACK);
+    display_fill_rect(6, 50, 130, 12);
+    display_set_fg_color(COLOR_WHITE);
+    display_set_font(&font_1);
+    display_text(10, 51, "r:");
+    display_decimal(26, 51, score);
+    display_text(66, 51, "p:");
+    display_decimal(82, 51, peak);
+  }
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------

@@ -986,7 +986,6 @@ static int32 caldbg_hdiff[2][6];
 static uint32 caldbg_res[2];
 static uint32 caldbg_peak[2];
 
-static uint32 measure_high_rate_artifact(PCHANNELSETTINGS settings, uint32 *max_pair_out);
 void uart1_wait_for_user_input(void);
 #endif
 
@@ -1447,7 +1446,7 @@ static void show_clock_test_status(uint8 p1b, uint32 score, uint32 peak, uint8 b
 // max_pair_out (if non-NULL) receives the LARGEST single even/odd pair difference seen:
 // the averaged score dilutes a rare glitched sample into nothing, but a marginal clock
 // shows up as occasional large single-sample excursions, which this peak value catches.
-static uint32 measure_high_rate_artifact(PCHANNELSETTINGS settings, uint32 *max_pair_out)
+uint32 measure_high_rate_artifact(PCHANNELSETTINGS settings, uint32 *max_pair_out)
 {
   uint8 *buf = settings->tracebuffer;
   uint32 n = scopesettings.nofsamples;

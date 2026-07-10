@@ -42,6 +42,11 @@ void scope_input_calibration(void);
 //1014D only: Si5351 sampling clock search (Factory settings -> Sampling clock -> Auto search)
 uint8 auto_detect_max_clean_sampling_clock(void);
 
+//1014D only: score the even/odd interleave artifact in a channel's trace buffer
+//(averaged score plus worst single pair excursion); used by the clock search, the
+//calibration diagnostic and the live readout in the Sampling clock menu
+uint32 measure_high_rate_artifact(PCHANNELSETTINGS settings, uint32 *max_pair_out);
+
 void scope_do_50_percent_trigger_setup(void);
 
 void scope_do_auto_setup(void);
