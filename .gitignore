@@ -1,0 +1,15 @@
+# Read-only vendored reference checkouts (see CLAUDE.md "Reference trees at repo root") —
+# fetched from their upstream repos, not part of this repository's history
+/Atlan4-1.00o5/
+/Atlan4-FPGA/
+/FNIRSI_1013D_Firmware/
+/FNIRSI_1014D_Firmware/
+/pecostm32-RE/
+/Bootloader fw0.02 and fw0.03 and fw0.04/
+/Bootloader fw0.02 and fw0.03 and fw0.04.zip
+
+# Bench screenshots copied off the scope's SD card for analysis
+/fnirsi_1013d_scope/*.bmp
+
+# opencode agent workspace
+/.opencode/
