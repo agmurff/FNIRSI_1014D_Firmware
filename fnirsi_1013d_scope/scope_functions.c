@@ -1198,6 +1198,13 @@ uint32 scope_do_baseline_calibration(void)
 #define HIGH_DC_OFFSET   500
 #define LOW_DC_OFFSET   1200
 
+//1014D: ADC level (0..255) the interleave mismatch is measured at during Base calibration.
+//The even/odd offset has a gain component, so it is larger where the trace actually runs
+//than at 0V/midscale (128). Measuring at 128 undercorrected the floating-input sawtooth
+//(bench: -6 at 128 -> -3/+3, but ~-10 at the run level was needed -> -5/+5). ~178 matches
+//where an uncentered/floating trace sits on this unit; tune here if the residual inverts.
+#define INTERLEAVE_CAL_LEVEL  178
+
 uint32 scope_do_channel_calibration(void)
 {
   uint32 flag = 1;
@@ -1370,14 +1377,22 @@ uint32 scope_do_channel_calibration(void)
     fpga_set_sample_rate(scopesettings.samplerate);
     fpga_set_time_base(scopesettings.timeperdiv);
 
+    int chidx = (calibrationsettings.adc1command == 0x20) ? 0 : 1;
+
     for(voltperdiv=0;voltperdiv<6;voltperdiv++)
     {
       calibrationsettings.samplevoltperdiv = voltperdiv;
       fpga_set_channel_voltperdiv(&calibrationsettings);
 
-      // Reuse a reasonable center offset from the prior DC cal for this v/div
-      calibrationsettings.dc_calibration_offset[voltperdiv] =
-        (samplerateaverage[0][voltperdiv] + samplerateaverage[1][voltperdiv]) / 2;
+      //Center offset from the DC cal (puts a 0V input at ADC 128) plus the per v/div offset
+      //step (offset units per ADC count, <<20 fixed point)
+      int32 center = (samplerateaverage[0][voltperdiv] + samplerateaverage[1][voltperdiv]) / 2;
+      int32 step   = ((int32)sampleratedcoffsetstep[0][voltperdiv] + (int32)sampleratedcoffsetstep[1][voltperdiv]) / 2;
+
+      //Measure the interleave mismatch at the level a real (uncentered) trace sits at, not
+      //at 0V/midscale: a lower offset value yields a higher ADC reading, so push the flat
+      //level up to INTERLEAVE_CAL_LEVEL where the gain part of the mismatch is in play
+      calibrationsettings.dc_calibration_offset[voltperdiv] = center - (((INTERLEAVE_CAL_LEVEL - 128) * step) >> 20);
       fpga_set_channel_offset(&calibrationsettings);
 
       timer0_delay(40);
@@ -1393,25 +1408,38 @@ uint32 scope_do_channel_calibration(void)
         hsum += hd;
 
         //Keep the per volt/div value for the calibration diagnostic display
-        caldbg_hdiff[(calibrationsettings.adc1command == 0x20) ? 0 : 1][voltperdiv] = hd;
+        caldbg_hdiff[chidx][voltperdiv] = hd;
       }
+
+      //Leave the centered offset as the calibration result; the run-level offset above was
+      //only for the interleave measurement, the final DC offset adjust below expects center
+      calibrationsettings.dc_calibration_offset[voltperdiv] = center;
     }
     hsum /= 6;
 
     // Use the high-rate diff for the actual compensation values (static sawtooth correction).
+    // Symmetric split: only adc2-adc1 affects the sawtooth, the common mode is a DC shift the
+    // zero-level cal absorbs (hsum -10 -> -5/+5).
     calibrationsettings.adc1compensation = hsum / 2;
     calibrationsettings.adc2compensation = -1 * (hsum - calibrationsettings.adc1compensation);
 
-    // Measure the residual artifact with the new compensation active (still at rate 0, so
-    // fpga_read_sample_data applies it) for the calibration diagnostic display
+    // Measure the residual with the new compensation active, at the same run level it was
+    // tuned for (no penalties: a flat, well-compensated capture is the goal here)
     {
-      int chidx = (calibrationsettings.adc1command == 0x20) ? 0 : 1;
+      int32 center = (samplerateaverage[0][5] + samplerateaverage[1][5]) / 2;
+      int32 step   = ((int32)sampleratedcoffsetstep[0][5] + (int32)sampleratedcoffsetstep[1][5]) / 2;
+
+      calibrationsettings.dc_calibration_offset[5] = center - (((INTERLEAVE_CAL_LEVEL - 128) * step) >> 20);
+      fpga_set_channel_offset(&calibrationsettings);
 
       fpga_do_conversion();
       while (fpga_done_conversion() == 0);
       fpga_read_sample_data(&calibrationsettings, 100);
 
-      caldbg_res[chidx] = measure_high_rate_artifact(&calibrationsettings, &caldbg_peak[chidx]);
+      caldbg_res[chidx] = measure_high_rate_artifact(&calibrationsettings, &caldbg_peak[chidx], 0);
+
+      //Restore the centered offset for the DC offset adjust below
+      calibrationsettings.dc_calibration_offset[5] = center;
     }
 
     // Restore for the DC offset adjust below (it walks all v/div using the last comp)
@@ -1448,7 +1476,7 @@ static void show_clock_test_status(uint8 p1b, uint32 score, uint32 peak, uint8 b
 // max_pair_out (if non-NULL) receives the LARGEST single even/odd pair difference seen:
 // the averaged score dilutes a rare glitched sample into nothing, but a marginal clock
 // shows up as occasional large single-sample excursions, which this peak value catches.
-uint32 measure_high_rate_artifact(PCHANNELSETTINGS settings, uint32 *max_pair_out)
+uint32 measure_high_rate_artifact(PCHANNELSETTINGS settings, uint32 *max_pair_out, uint32 apply_penalties)
 {
   uint8 *buf = settings->tracebuffer;
   uint32 n = scopesettings.nofsamples;
@@ -1492,14 +1520,22 @@ uint32 measure_high_rate_artifact(PCHANNELSETTINGS settings, uint32 *max_pair_ou
   // Mean of one substream
   int32 mean = sum / (n/2 + 1);
 
-  // Combine mismatch + variance + penalties for bad mean or long runs
+  // Combine mismatch + variance into the base interleave-residual score
   uint32 base = (sum_diff * 4 + sum_var) / (n / 2 + 1);
 
-  // Penalty if mean far from midscale (bad capture / timing)
-  if (mean < 100 || mean > 156) base += 500;
+  // The mean/stuck-run penalties only make sense for the clock search, which must reject a
+  // clock the FPGA can't keep up with (returns stuck or mid-scale-parked data). For the
+  // calibration diagnostic and the live trim readout a FLAT input is exactly the goal, so a
+  // long run of identical samples is success, not a stuck FPGA - applying the run penalty
+  // there inflated a perfectly compensated capture into the thousands. Gate them.
+  if (apply_penalties)
+  {
+    // Penalty if mean far from midscale (bad capture / timing)
+    if (mean < 100 || mean > 156) base += 500;
 
-  // Penalty for stuck runs (FPGA or ADC not responding properly)
-  if (max_run > 20) base += (max_run - 20) * 50;
+    // Penalty for stuck runs (FPGA or ADC not responding properly)
+    if (max_run > 20) base += (max_run - 20) * 50;
+  }
 
   if (max_pair_out) *max_pair_out = (uint32)max_pair;
 
@@ -1605,7 +1641,7 @@ uint8 auto_detect_max_clean_sampling_clock(void)
         // Read into channel1 buffer
         fpga_read_sample_data(&scopesettings.channel1, fpgasettings.settriggerpoint / 2);
 
-        repscore = measure_high_rate_artifact(&scopesettings.channel1, &reppeak);
+        repscore = measure_high_rate_artifact(&scopesettings.channel1, &reppeak, 1);
         raw_avg = scopesettings.channel1.adc1rawaverage;
       }
 

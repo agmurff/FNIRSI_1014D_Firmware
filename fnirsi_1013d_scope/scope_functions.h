@@ -45,7 +45,9 @@ uint8 auto_detect_max_clean_sampling_clock(void);
 //1014D only: score the even/odd interleave artifact in a channel's trace buffer
 //(averaged score plus worst single pair excursion); used by the clock search, the
 //calibration diagnostic and the live readout in the Sampling clock menu
-uint32 measure_high_rate_artifact(PCHANNELSETTINGS settings, uint32 *max_pair_out);
+//apply_penalties: 1 for the clock search (must reject a clock the FPGA can't keep up with),
+//0 for the cal diagnostic and live trim readout (a flat, well-compensated capture is the goal)
+uint32 measure_high_rate_artifact(PCHANNELSETTINGS settings, uint32 *max_pair_out, uint32 apply_penalties);
 
 void scope_do_50_percent_trigger_setup(void);
 

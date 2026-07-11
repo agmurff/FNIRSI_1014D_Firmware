@@ -1444,12 +1444,17 @@ void sm_set_time_base(void)
   {
     scopesettings.timeperdiv = newvalue;
 
-    //Same regime handling as scope_set_timebase(): scope mode skips the 50ms and 20ms settings
-    //when crossing the long/short time base boundary
+    //Long/short time base overlap: the 35-entry table has 200ms/100ms/50ms/20ms in BOTH the
+    //long-timebase (roll) block (indices 7..10) and the short/sweep block (indices 11..14),
+    //so the dial showed e.g. "100ms" twice and the roll rendering (Atlan4 1013D code, glitchy
+    //on this unit) triggered at 100ms. Move the boundary so the roll block only serves the
+    //genuinely slow settings (<=500ms, index 6) and 200ms/100ms/50ms/20ms are reached only in
+    //sweep mode. Crossing up from 500ms(6) jumps to 200ms sweep(11); crossing down from
+    //200ms sweep(11) jumps to 500ms roll(6); indices 7..10 become unreachable via the dial.
     if(!scopesettings.waveviewmode)
     {
-      if(scopesettings.timeperdiv == 9)  { scopesettings.timeperdiv = 11; scopesettings.long_mode = 0; }
-      if(scopesettings.timeperdiv == 10) { scopesettings.timeperdiv = 8;  scopesettings.long_mode = 1; }
+      if(scopesettings.timeperdiv == 7)  { scopesettings.timeperdiv = 11; scopesettings.long_mode = 0; }
+      if(scopesettings.timeperdiv == 10) { scopesettings.timeperdiv = 6;  scopesettings.long_mode = 1; }
     }
 
     //Long time base
@@ -2811,14 +2816,22 @@ void sm_handle_trim_actions(void)
     case UIC_ROTARY_SEL_SUB:
     case UIC_BUTTON_NAV_UP:
     case UIC_BUTTON_NAV_DOWN:
-      //Keep the value inside the range the calibration restore accepts as plausible
-      if(((settings->adc2compensation + setvalue) >= -100) && ((settings->adc2compensation + setvalue) <= 100))
-      {
-        settings->adc2compensation += setvalue;
-      }
+    {
+      //Only the difference adc2-adc1 affects the sawtooth; the common mode is a DC shift the
+      //zero-level cal absorbs. Adjust the difference by one count per detent and keep it split
+      //symmetrically so the row reads like a cal result (-5/+5), matching what Base cal writes.
+      int32 d = settings->adc2compensation - settings->adc1compensation + setvalue;
+
+      //Clamp the difference so neither half leaves the +-100 range the cal restore accepts
+      if(d >  200) d =  200;
+      if(d < -200) d = -200;
+
+      settings->adc1compensation = -(d / 2);
+      settings->adc2compensation = d + settings->adc1compensation;
 
       ui_display_clock_menu(CLOCK_MENU_XPOS, CLOCK_MENU_YPOS);
       break;
+    }
   }
 }
 

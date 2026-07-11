@@ -5339,7 +5339,7 @@ void ui_display_clock_menu(uint16 xpos, uint16 ypos)
   if((scopesettings.samplerate == 0) && measurechannel->enable)
   {
     uint32 peak = 0;
-    uint32 score = measure_high_rate_artifact(measurechannel, &peak);
+    uint32 score = measure_high_rate_artifact(measurechannel, &peak, 0);
 
     display_set_fg_color(COLOR_BLACK);
     display_fill_rect(6, 50, 130, 12);
