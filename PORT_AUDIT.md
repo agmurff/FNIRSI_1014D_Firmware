@@ -505,6 +505,55 @@ and lacks the clobber. Open question if the revert isn't enough: whether to also
 `samplerate==0` gate on comp application in fpga_control.c to fully match his unconditional
 apply (deferred — one change at a time; the rate-0 sawtooth is the reported symptom).
 
+**F23 — the interleave sawtooth is a bug in OUR acquisition, not calibrateable; whole
+elimination sweep (bench, 2026-07-11).** Reframe from the user: pecostm32's stock 1014D
+firmware has **no sawtooth at all** on this exact hardware and no sawtooth-calibration UI —
+the entire comp/trim feature is something we added to OUR (Atlan4-based) build to fix a
+sawtooth that only WE have. So the sawtooth is a defect in our acquisition path, not a
+hardware effect to be calibrated away. Confirmed bench facts, stable across every change
+below: cal reports comp diff ~6 (`-3/+3`); the trace needs diff ~10 (`-5/+5`) to go flat;
+residual at `-3/+3` is ~21 mV; the trace floats ~10 mV (~2 ADC counts) above 0 on a 0 V
+input; the manual comp trim DOES move the sawtooth (so comp reaches the display), but
+**nothing else we changed moved either number**, and the on-screen build timestamp confirms
+the latest image was flashed each time. Sharpened statement of the mystery: cal measures
+`adc2rawaverage - adc1rawaverage` = 6, but the displayed even/odd difference the trim must
+null is ~10 — the *same quantity*, measured two ways, disagreeing. Everything that could
+make those two disagree has now been eliminated:
+
+| Hypothesis / change tried | Commit | Result |
+|---|---|---|
+| Cal measured at rate 0 vs runtime rate | (early) | both read 6 — not it |
+| `rawaverage` polluted by current comp | (audit) | summed pre-comp — not it |
+| Averaging window (`nofsamples`) differs | (audit) | same as runtime — not it |
+| Run-level (offset-shifted) measurement | af8b66f (reverted) | overshot to ~55; DAC-regime artifact |
+| Settled multi-frame, runtime-matched | f8b6160 | still 6 |
+| Runtime triggerpoint (not fixed 100) | 81bfa13 | still 6 |
+| Use pecostm32's 2 MSa/s comp (drop my rate-0 clobber) | 3de7675 | still 6 |
+| Apply comp at all rates (drop samplerate==0 gate) | b0daa6b | no change (tested at rate 0) |
+| Pin ADC at centre + display-domain position (drop dcoffset) | bd188bb | **no change** — trace did NOT move (⇒ dcoffset ≈ 0 here) and sawtooth unchanged |
+
+**Firm conclusions:** the sawtooth is NOT operating-point / `dcoffset` dependent (pinning the
+ADC did nothing, and the trace didn't move when the `dcoffset` display term was removed, so
+`dcoffset` was ~0 all along); it is NOT the cal rate/window/settling/triggerpoint; the comp
+arithmetic is correct. The `10 mV`-above-0 DC float is ALSO not `dcoffset`. Both symptoms
+live somewhere still unexamined. **Leads not yet checked (next session):** (1) the
+`checkfirstadc` rail-matching block in `fpga_read_adc_data` (fpga_control.c ~1081) MODIFIES
+`buffer[1]` (the ADC1 slot) based on ADC2 during the second read — if it mis-fires it could
+inject a displayed sawtooth larger than the raw mean difference cal sees (would explain
+"cal 6, display 10, same quantity"); diff it against pecostm32's (his ~765) line by line.
+(2) Whether `calibrationsettings.adc1command/adc2command` are the SAME ADC streams the
+runtime channel reads — if cal averages a different ADC pair than the display interleaves,
+the two measurements legitimately disagree. (3) The raw per-ADC offset itself: compare a
+raw (comp=0) capture's even vs odd means in OUR build vs a capture from pecostm32's — if
+OUR raw sawtooth is bigger, it is created in FPGA setup (`fpga_set_sample_rate` /
+`fpga_set_time_base` / `fpga_do_conversion` / FPGA init), which is Atlan4's and unverified
+against his. **Housekeeping:** stage-1 dcoffset changes (bd188bb) left positioning
+half-converted (linear display uses traceposition-only; XY/FIR/sinc still add `dcoffset`) for
+zero benefit — recommend reverting bd188bb (and reconsider b0daa6b, which carries a
+slow-rate hedgehog risk and gave no benefit) to keep the tree consistent while the real
+cause is hunted. Commits 3de7675 (drop my rate-0 clobber) and 7453358 (helper refactor) are
+worth keeping regardless (they make our comp path match his and readable).
+
 ## 5d. GUI-glue audit (2026-07-10 night) — why the GUI "felt rewritten", quantified
 
 Concern: the port was supposed to carry pecostm32's 1014D GUI over, yet placement and
