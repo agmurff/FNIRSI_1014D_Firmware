@@ -1198,6 +1198,14 @@ uint32 scope_do_baseline_calibration(void)
 #define HIGH_DC_OFFSET   500
 #define LOW_DC_OFFSET   1200
 
+//1014D interleave cal: match the runtime acquisition condition. The bespoke single-shot read
+//right after a fresh rate/timebase/offset change is not settled the way the continuous
+//runtime loop is; the live trace/manual trim (proven correct on the bench) needs ~10 where
+//the single shot read a stable ~6. Discard a few warm-up conversions, then average several
+//settled frames so the cal measurement sees the same steady state the display/trim does.
+#define INTERLEAVE_CAL_WARMUP  4
+#define INTERLEAVE_CAL_FRAMES  8
+
 uint32 scope_do_channel_calibration(void)
 {
   uint32 flag = 1;
@@ -1388,13 +1396,27 @@ uint32 scope_do_channel_calibration(void)
 
       timer0_delay(40);
 
-      fpga_do_conversion();
-      while (fpga_done_conversion() == 0);
-
-      fpga_read_sample_data(&calibrationsettings, 100);
-
+      //Warm up (discarded) so the pipeline is at the same steady state as the runtime loop
+      for(uint32 f = 0; f < INTERLEAVE_CAL_WARMUP; f++)
       {
-        int32 hd = (calibrationsettings.adc2rawaverage - calibrationsettings.adc1rawaverage);
+        fpga_do_conversion();
+        while (fpga_done_conversion() == 0);
+        fpga_read_sample_data(&calibrationsettings, 100);
+      }
+
+      //Average several settled frames of the raw ADC2-ADC1 difference
+      {
+        int32 hacc = 0;
+
+        for(uint32 f = 0; f < INTERLEAVE_CAL_FRAMES; f++)
+        {
+          fpga_do_conversion();
+          while (fpga_done_conversion() == 0);
+          fpga_read_sample_data(&calibrationsettings, 100);
+          hacc += (calibrationsettings.adc2rawaverage - calibrationsettings.adc1rawaverage);
+        }
+
+        int32 hd = hacc / (int32)INTERLEAVE_CAL_FRAMES;
 
         hsum += hd;
 
@@ -1416,9 +1438,13 @@ uint32 scope_do_channel_calibration(void)
       calibrationsettings.dc_calibration_offset[5] = (samplerateaverage[0][5] + samplerateaverage[1][5]) / 2;
       fpga_set_channel_offset(&calibrationsettings);
 
-      fpga_do_conversion();
-      while (fpga_done_conversion() == 0);
-      fpga_read_sample_data(&calibrationsettings, 100);
+      //Settle to the same steady state as the measurement above
+      for(uint32 f = 0; f < INTERLEAVE_CAL_WARMUP; f++)
+      {
+        fpga_do_conversion();
+        while (fpga_done_conversion() == 0);
+        fpga_read_sample_data(&calibrationsettings, 100);
+      }
 
       caldbg_res[chidx] = measure_high_rate_artifact(&calibrationsettings, &caldbg_peak[chidx], 0);
     }
