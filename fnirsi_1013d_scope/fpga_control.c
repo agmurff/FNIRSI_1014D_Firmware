@@ -362,9 +362,13 @@ void fpga_set_channel_offset(PCHANNELSETTINGS settings)
   //Send the command for channel DC offset to the FPGA scopesettings.channel1.traceposition
   fpga_write_cmd(settings->offsetcommand);
 
-  //Write the center offset data for this channel and volt per div setting
-  //fpga_write_short(settings->dc_calibration_offset[settings->samplevoltperdiv];
-  fpga_write_short(settings->dc_calibration_offset[settings->samplevoltperdiv]+(settings->dcoffset));
+  //Write the center offset data for this channel and volt per div setting.
+  //Stage 1 of adopting pecostm32's model (PORT_AUDIT.md F23): pin the ADC operating point at
+  //dc_calibration_offset -- do NOT add settings->dcoffset. Atlan4 shifted the ADC operating
+  //point with trace position, which floated the trace off 0 and (if the interleave mismatch is
+  //operating-point dependent) changed the sawtooth vs what cal measured at centre. Trace
+  //positioning is now purely display-domain (scope_get_y_sample uses traceposition alone).
+  fpga_write_short(settings->dc_calibration_offset[settings->samplevoltperdiv]);
   //fpga_write_short(settings->dc_calibration_offset[settings->samplevoltperdiv]-(settings->dcoffset));
   //offset = (signal_adjusters[0] * (settings->dcoffset)/2) / signal_adjusters[settings->samplevoltperdiv];
   

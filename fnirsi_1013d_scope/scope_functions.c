@@ -3613,10 +3613,11 @@ int32 scope_get_y_sample(PCHANNELSETTINGS settings, int32 index)
     //sample = settings->traceposition + sample + ((settings->dcoffset*100)/settings->dc_shift_size);
     //if(settings->displayvoltperdiv == 6) sample = settings->traceposition + sample + (((settings->dcoffset*100)/settings->dc_shift_size)*2);
       //else sample = settings->traceposition + sample + ((settings->dcoffset*100)/settings->dc_shift_size);
-    if(settings->displayvoltperdiv == 6) sample = settings->traceposition + sample + (((settings->dcoffset*100)/settings->dc_shift_size)*2);
-    //if(settings->displayvoltperdiv == 6) sample = ((settings->traceposition)) + sample + ((settings->dcoffset*100)/settings->dc_shift_size); //else sample = settings->traceposition + sample + ((settings->dcoffset*100)/settings->dc_shift_size);
-    else sample = settings->traceposition + sample + ((settings->dcoffset*100)/settings->dc_shift_size);
-    //else sample = settings->traceposition + sample;
+    //Stage 1 of adopting pecostm32's positioning (PORT_AUDIT.md F23): position purely in the
+    //display domain via traceposition. The ADC is now pinned at centre (fpga_set_channel_offset)
+    //so no dcoffset compensation is applied here. The XY / FIR / sinc display paths still carry
+    //the old dcoffset term until this stage is validated on the bench.
+    sample = settings->traceposition + sample;
     //****************************************************************************
 
     //Limit sample on min displayable
