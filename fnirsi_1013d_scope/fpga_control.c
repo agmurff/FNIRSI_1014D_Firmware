@@ -1047,16 +1047,13 @@ void fpga_read_adc_data(PCHANNELSETTINGS settings)
     sum += sample;
 
     //Compensate the value for ADC inequality (interleave sawtooth correction).
-    //Only apply at sample rate 0 (200MSa/s), the only rate where the dual-ADC
-    //interleave is active: that covers 500ns/div and faster (timeperdiv >= 28).
-    //At the lower rates the two readout paths are not distinct physical samples;
-    //applying a nonzero comp there creates a hedgehog/ripple that is absent with
-    //defaults (0,0).
-    if (scopesettings.samplerate == 0)
-    {
-      sample += settings->compensation;
-    }
-     
+    //Applied unconditionally at every rate, matching pecostm32's read path (his firmware
+    //is clean on this hardware and applies comp at all rates -- PORT_AUDIT.md F23). The old
+    //samplerate==0 gate left the sawtooth uncorrected on every timescale except the fastest
+    //("both/always" on the bench). If a hedgehog/ripple appears at slower rates instead, our
+    //FPGA read does NOT return distinct interleaved samples there and this must be reverted.
+    sample += settings->compensation;
+
     //Check if sample became negative
     if(sample < 0)
     {
@@ -1077,8 +1074,8 @@ void fpga_read_adc_data(PCHANNELSETTINGS settings)
     if (sample == 255)  settings->ADoverload |= 254;    //=255
  //*****************************************************************************   
     
-    //Check if busy with second ADC data (only relevant when the interleave is active)
-    if(settings->checkfirstadc && scopesettings.samplerate == 0)
+    //Check if busy with second ADC data (matches pecostm32: gated on checkfirstadc only)
+    if(settings->checkfirstadc)
     {
       //When ADC1 compensation is positive, ADC1 bottoms out on this value
       //Near the top ADC2 reaches the top value first, so same method is needed
