@@ -1198,13 +1198,6 @@ uint32 scope_do_baseline_calibration(void)
 #define HIGH_DC_OFFSET   500
 #define LOW_DC_OFFSET   1200
 
-//1014D: ADC level (0..255) the interleave mismatch is measured at during Base calibration.
-//The even/odd offset has a gain component, so it is larger where the trace actually runs
-//than at 0V/midscale (128). Measuring at 128 undercorrected the floating-input sawtooth
-//(bench: -6 at 128 -> -3/+3, but ~-10 at the run level was needed -> -5/+5). ~178 matches
-//where an uncentered/floating trace sits on this unit; tune here if the residual inverts.
-#define INTERLEAVE_CAL_LEVEL  178
-
 uint32 scope_do_channel_calibration(void)
 {
   uint32 flag = 1;
@@ -1384,15 +1377,13 @@ uint32 scope_do_channel_calibration(void)
       calibrationsettings.samplevoltperdiv = voltperdiv;
       fpga_set_channel_voltperdiv(&calibrationsettings);
 
-      //Center offset from the DC cal (puts a 0V input at ADC 128) plus the per v/div offset
-      //step (offset units per ADC count, <<20 fixed point)
-      int32 center = (samplerateaverage[0][voltperdiv] + samplerateaverage[1][voltperdiv]) / 2;
-      int32 step   = ((int32)sampleratedcoffsetstep[0][voltperdiv] + (int32)sampleratedcoffsetstep[1][voltperdiv]) / 2;
-
-      //Measure the interleave mismatch at the level a real (uncentered) trace sits at, not
-      //at 0V/midscale: a lower offset value yields a higher ADC reading, so push the flat
-      //level up to INTERLEAVE_CAL_LEVEL where the gain part of the mismatch is in play
-      calibrationsettings.dc_calibration_offset[voltperdiv] = center - (((INTERLEAVE_CAL_LEVEL - 128) * step) >> 20);
+      //Center the flat 0V input at ADC ~128 (the DC-cal offset for this v/div) and measure the
+      //interleave mismatch there. NOTE: measuring at a DC-offset-shifted "run level" was tried
+      //(INTERLEAVE_CAL_LEVEL) and badly overshot on hardware (diff ~55 vs the real ~10 the
+      //manual trim proves), because driving the offset DAC to park a shorted input high drives
+      //the ADCs into a far more divergent regime than a real signal at that level does. So cal
+      //measures at center and the manual symmetric trim finishes the run-level correction.
+      calibrationsettings.dc_calibration_offset[voltperdiv] = (samplerateaverage[0][voltperdiv] + samplerateaverage[1][voltperdiv]) / 2;
       fpga_set_channel_offset(&calibrationsettings);
 
       timer0_delay(40);
@@ -1410,10 +1401,6 @@ uint32 scope_do_channel_calibration(void)
         //Keep the per volt/div value for the calibration diagnostic display
         caldbg_hdiff[chidx][voltperdiv] = hd;
       }
-
-      //Leave the centered offset as the calibration result; the run-level offset above was
-      //only for the interleave measurement, the final DC offset adjust below expects center
-      calibrationsettings.dc_calibration_offset[voltperdiv] = center;
     }
     hsum /= 6;
 
@@ -1423,13 +1410,10 @@ uint32 scope_do_channel_calibration(void)
     calibrationsettings.adc1compensation = hsum / 2;
     calibrationsettings.adc2compensation = -1 * (hsum - calibrationsettings.adc1compensation);
 
-    // Measure the residual with the new compensation active, at the same run level it was
-    // tuned for (no penalties: a flat, well-compensated capture is the goal here)
+    // Measure the residual with the new compensation active at the centered level
+    // (no penalties: a flat, well-compensated capture is the goal here)
     {
-      int32 center = (samplerateaverage[0][5] + samplerateaverage[1][5]) / 2;
-      int32 step   = ((int32)sampleratedcoffsetstep[0][5] + (int32)sampleratedcoffsetstep[1][5]) / 2;
-
-      calibrationsettings.dc_calibration_offset[5] = center - (((INTERLEAVE_CAL_LEVEL - 128) * step) >> 20);
+      calibrationsettings.dc_calibration_offset[5] = (samplerateaverage[0][5] + samplerateaverage[1][5]) / 2;
       fpga_set_channel_offset(&calibrationsettings);
 
       fpga_do_conversion();
@@ -1437,9 +1421,6 @@ uint32 scope_do_channel_calibration(void)
       fpga_read_sample_data(&calibrationsettings, 100);
 
       caldbg_res[chidx] = measure_high_rate_artifact(&calibrationsettings, &caldbg_peak[chidx], 0);
-
-      //Restore the centered offset for the DC offset adjust below
-      calibrationsettings.dc_calibration_offset[5] = center;
     }
 
     // Restore for the DC offset adjust below (it walks all v/div using the last comp)
