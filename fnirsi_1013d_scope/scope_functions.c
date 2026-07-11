@@ -1234,6 +1234,28 @@ static void interleave_set_centre(PCHANNELSETTINGS s, uint32 voltperdiv)
   fpga_set_channel_offset(s);
 }
 
+//Compute the readout triggerpoint exactly as scope_acquire_trace_data() does, so the interleave
+//is measured over the same buffer window the live trace (and thus the manual trim) reads from,
+//instead of the flat 100 the cal used to use. Must be called after a conversion completes.
+static uint32 interleave_runtime_triggerpoint(void)
+{
+  uint32 data = fpga_prepare_for_transfer();
+
+  if(fpgasettings.fw_FPGA == 1)
+  {
+    if(data < 750) data += 3345; else data -= 750;
+  }
+  else if((fpgasettings.fw_FPGA == 2) || (fpgasettings.fw_FPGA == 3))
+  {
+    uint32 half = fpgasettings.settriggerpoint / 2;
+
+    if(data < half) data += (fpgasettings.fw_FPGA == 2) ? 7441 : 5393;
+    else            data -= half;
+  }
+
+  return data;
+}
+
 //Run the acquisition a few times, discarding the results, so the ADC/FPGA pipeline reaches the
 //same steady state the free-running runtime loop sits in (a single cold shot reads low).
 static void interleave_settle(PCHANNELSETTINGS s, uint32 frames)
@@ -1242,7 +1264,7 @@ static void interleave_settle(PCHANNELSETTINGS s, uint32 frames)
   {
     fpga_do_conversion();
     while(fpga_done_conversion() == 0);
-    fpga_read_sample_data(s, 100);
+    fpga_read_sample_data(s, interleave_runtime_triggerpoint());
   }
 }
 
@@ -1262,7 +1284,7 @@ static int32 interleave_measure_offset(PCHANNELSETTINGS s, uint32 voltperdiv)
   {
     fpga_do_conversion();
     while(fpga_done_conversion() == 0);
-    fpga_read_sample_data(s, 100);
+    fpga_read_sample_data(s, interleave_runtime_triggerpoint());
     acc += (int32)s->adc2rawaverage - (int32)s->adc1rawaverage;
   }
 
