@@ -1161,30 +1161,32 @@ uint32 scope_do_baseline_calibration(void)
   // volt/div dependent), and the residual artifact score/peak measured with the new
   // compensation active (r near 0-2 = comp working, remaining fuzz is noise).
   // Wait for a key so the numbers can actually be read (a fixed delay was too short).
+  //One data class per line: the old two line layout ran the residual into the peak
+  //column as soon as either went past two digits (display_decimal is left aligned)
   display_set_fg_color(DARKGREY_COLOR);
-  display_fill_rect(380, 268, 320, 40);
+  display_fill_rect(380, 268, 320, 62);
   display_set_fg_color(COLOR_WHITE);
   display_set_font(&font_1);
   display_text(384, 270, "cal data - press any key");
   display_text(384, 282, "C1:");
-  display_decimal(410, 282, scopesettings.channel1.adc1compensation);
-  display_decimal(440, 282, scopesettings.channel1.adc2compensation);
+  display_decimal(412, 282, scopesettings.channel1.adc1compensation);
+  display_decimal(444, 282, scopesettings.channel1.adc2compensation);
+  display_text(490, 282, "r:");
+  display_decimal(506, 282, caldbg_res[0]);
+  display_decimal(550, 282, caldbg_peak[0]);
   display_text(384, 293, "C2:");
-  display_decimal(410, 293, scopesettings.channel2.adc1compensation);
-  display_decimal(440, 293, scopesettings.channel2.adc2compensation);
-  display_text(470, 282, "d:");
-  display_text(470, 293, "d:");
+  display_decimal(412, 293, scopesettings.channel2.adc1compensation);
+  display_decimal(444, 293, scopesettings.channel2.adc2compensation);
+  display_text(490, 293, "r:");
+  display_decimal(506, 293, caldbg_res[1]);
+  display_decimal(550, 293, caldbg_peak[1]);
+  display_text(384, 304, "d1:");
+  display_text(384, 315, "d2:");
   for(int i = 0; i < 6; i++)
   {
-    display_decimal(488 + (i * 28), 282, caldbg_hdiff[0][i]);
-    display_decimal(488 + (i * 28), 293, caldbg_hdiff[1][i]);
+    display_decimal(412 + (i * 32), 304, caldbg_hdiff[0][i]);
+    display_decimal(412 + (i * 32), 315, caldbg_hdiff[1][i]);
   }
-  display_text(652, 282, "r:");
-  display_decimal(664, 282, caldbg_res[0]);
-  display_decimal(684, 282, caldbg_peak[0]);
-  display_text(652, 293, "r:");
-  display_decimal(664, 293, caldbg_res[1]);
-  display_decimal(684, 293, caldbg_peak[1]);
   uart1_wait_for_user_input();
 #endif
 

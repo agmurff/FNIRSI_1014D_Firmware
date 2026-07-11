@@ -5213,13 +5213,15 @@ void ui_display_factory_menu(uint16 xpos, uint16 ypos)
 
 uint32 clockmenuhighlighteditem;
 
-const char *clock_menu_texts[5] =
+const char *clock_menu_texts[7] =
 {
   "50 MHz stock",
   "57 MHz",
   "67 MHz",
   "80 MHz",
-  "Auto search"
+  "Auto search",
+  "Trim CH1",
+  "Trim CH2"
 };
 
 //p1b divider value per menu item; the last item is the auto search
@@ -5288,7 +5290,7 @@ void ui_display_clock_menu(uint16 xpos, uint16 ypos)
   display_set_font(&font_1);
 
   //Draw the label per line; the currently active clock is shown in green
-  for(i=0;i<5;i++)
+  for(i=0;i<7;i++)
   {
     if((i < 4) && (clock_menu_p1b[i] == sampling_clock_p1b))
     {
@@ -5302,14 +5304,42 @@ void ui_display_clock_menu(uint16 xpos, uint16 ypos)
     display_text(xpos + 12, ypos + 11 + (i * 31), clock_menu_texts[i]);
   }
 
+  //The trim rows show the channel's live ADC compensation pair. Yellow numbers on the
+  //selected row signal trim mode: the rotary then nudges that channel's interleave
+  //balance instead of moving the highlight
+  for(i=0;i<2;i++)
+  {
+    PCHANNELSETTINGS settings = i ? &scopesettings.channel2 : &scopesettings.channel1;
+
+    if((navigationstate == NAV_TRIM_HANDLING) && (clockmenuhighlighteditem == (5 + i)))
+    {
+      display_set_fg_color(COLOR_YELLOW);
+    }
+    else
+    {
+      display_set_fg_color(COLOR_WHITE);
+    }
+
+    display_decimal(xpos + 92,  ypos + 11 + ((5 + i) * 31), settings->adc1compensation);
+    display_decimal(xpos + 128, ypos + 11 + ((5 + i) * 31), settings->adc2compensation);
+  }
+
   //Live residual interleave readout while this menu is open: score and worst pair
-  //excursion of the compensated CH1 buffer, recomputed from the current capture on
-  //every composited frame. Watching r/p wander quantifies the "breathing" sawtooth;
-  //only meaningful at the interleaved full rate (samplerate 0 = 500 ns/div and faster)
-  if((scopesettings.samplerate == 0) && scopesettings.channel1.enable)
+  //excursion of the compensated buffer, recomputed from the current capture on every
+  //composited frame. Watching r/p wander quantifies the "breathing" sawtooth; only
+  //meaningful at the interleaved full rate (samplerate 0 = 500 ns/div and faster).
+  //Normally measures CH1, but follows the channel being trimmed
+  PCHANNELSETTINGS measurechannel = &scopesettings.channel1;
+
+  if((navigationstate == NAV_TRIM_HANDLING) && (clockmenuhighlighteditem == 6))
+  {
+    measurechannel = &scopesettings.channel2;
+  }
+
+  if((scopesettings.samplerate == 0) && measurechannel->enable)
   {
     uint32 peak = 0;
-    uint32 score = measure_high_rate_artifact(&scopesettings.channel1, &peak);
+    uint32 score = measure_high_rate_artifact(measurechannel, &peak);
 
     display_set_fg_color(COLOR_BLACK);
     display_fill_rect(6, 50, 130, 12);
@@ -5339,6 +5369,7 @@ uint32 ui_menu_composite_active(void)
     case NAV_ON_OFF_HANDLING:
     case NAV_FACTORY_MENU_HANDLING:
     case NAV_CLOCK_MENU_HANDLING:
+    case NAV_TRIM_HANDLING:
       return(1);
   }
 
@@ -5402,7 +5433,9 @@ void ui_redraw_active_menu(void)
       break;
 
     case NAV_CLOCK_MENU_HANDLING:
-      //The clock menu sits on top of the factory menu, which sits on the main menu
+    case NAV_TRIM_HANDLING:
+      //The clock menu sits on top of the factory menu, which sits on the main menu;
+      //trim mode is the same stack with the rotary redirected to the compensation
       ui_display_main_menu();
 
       ui_display_factory_menu(FACTORY_MENU_XPOS, FACTORY_MENU_YPOS);

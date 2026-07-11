@@ -120,6 +120,7 @@ enum NavigationStates
   NAV_CHANNEL_MENU_HANDLING,
   NAV_FACTORY_MENU_HANDLING,
   NAV_CLOCK_MENU_HANDLING,
+  NAV_TRIM_HANDLING,
 };
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -259,6 +260,7 @@ void sm_restart_system(void);
 
 void sm_open_clock_menu(void);
 void sm_handle_clock_menu_actions(void);
+void sm_handle_trim_actions(void);
 
 void handle_right_basic_menu_touch(void);
 void handle_right_volts_div_menu_touch(void);

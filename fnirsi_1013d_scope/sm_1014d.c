@@ -165,6 +165,10 @@ void sm_handle_user_input(void)
         sm_handle_clock_menu_actions();
         break;
 
+      case NAV_TRIM_HANDLING:
+        sm_handle_trim_actions();
+        break;
+
       case NAV_MEASUREMENTS_MENU_HANDLING:
         sm_handle_measurements_menu_actions();
         break;
@@ -2740,9 +2744,9 @@ void sm_handle_clock_menu_actions(void)
       //Limit it on the range for this menu
       if(newitem < 0)
       {
-        newitem = 4;
+        newitem = 6;
       }
-      else if(newitem > 4)
+      else if(newitem > 6)
       {
         newitem = 0;
       }
@@ -2763,11 +2767,57 @@ void sm_handle_clock_menu_actions(void)
         //Redraw so the green active-clock marker moves to the new selection
         ui_display_clock_menu(CLOCK_MENU_XPOS, CLOCK_MENU_YPOS);
       }
-      else
+      else if(clockmenuhighlighteditem == 4)
       {
         //Run the automatic clock search
         sm_do_clock_auto_search();
       }
+      else
+      {
+        //Enter interleave trim mode on the highlighted channel: the rotary now nudges
+        //the ADC compensation instead of moving the highlight (values turn yellow)
+        navigationstate = NAV_TRIM_HANDLING;
+
+        ui_display_clock_menu(CLOCK_MENU_XPOS, CLOCK_MENU_YPOS);
+      }
+      break;
+  }
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//Manual interleave trim: adjust the highlighted channel's even/odd ADC balance one count
+//per detent while the trace and the r/p readout update live. Only the ADC2 compensation
+//moves, so the finest possible difference step is available; the half count of common
+//mode this adds is invisible next to the DC calibration offsets. The result is stored in
+//the normal compensation variables, so it persists with the settings like a Base
+//calibration result does.
+
+void sm_handle_trim_actions(void)
+{
+  PCHANNELSETTINGS settings = (clockmenuhighlighteditem == 5) ? &scopesettings.channel1 : &scopesettings.channel2;
+
+  switch(toprocesscommand)
+  {
+    case UIC_BUTTON_NAV_OK:
+    case UIC_BUTTON_NAV_LEFT:
+    case UIC_BUTTON_NAV_RIGHT:
+      //Leave trim mode and go back to normal clock menu navigation
+      navigationstate = NAV_CLOCK_MENU_HANDLING;
+
+      ui_display_clock_menu(CLOCK_MENU_XPOS, CLOCK_MENU_YPOS);
+      break;
+
+    case UIC_ROTARY_SEL_ADD:
+    case UIC_ROTARY_SEL_SUB:
+    case UIC_BUTTON_NAV_UP:
+    case UIC_BUTTON_NAV_DOWN:
+      //Keep the value inside the range the calibration restore accepts as plausible
+      if(((settings->adc2compensation + setvalue) >= -100) && ((settings->adc2compensation + setvalue) <= 100))
+      {
+        settings->adc2compensation += setvalue;
+      }
+
+      ui_display_clock_menu(CLOCK_MENU_XPOS, CLOCK_MENU_YPOS);
       break;
   }
 }

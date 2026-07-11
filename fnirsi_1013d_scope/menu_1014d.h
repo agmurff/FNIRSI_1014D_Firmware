@@ -73,11 +73,12 @@
 #define FACTORY_MENU_WIDTH              170
 #define FACTORY_MENU_HEIGHT             132
 
-//Sampling clock menu, opens next to the factory menu (five items of 31 each plus border)
+//Sampling clock menu, opens next to the factory menu (seven items of 31 each plus border;
+//moved up so the taller menu stays on screen)
 #define CLOCK_MENU_XPOS                 363
-#define CLOCK_MENU_YPOS                 309
+#define CLOCK_MENU_YPOS                 247
 #define CLOCK_MENU_WIDTH                170
-#define CLOCK_MENU_HEIGHT               163
+#define CLOCK_MENU_HEIGHT               225
 
 #define ON_OFF_SELECT_X_OFFSET            4
 #define ON_OFF_SELECT_ON_Y_OFFSET         4
