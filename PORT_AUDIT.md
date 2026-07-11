@@ -423,12 +423,18 @@ settings like a Base calibration result.
 the even/odd ADC mismatch is **gain-type**, so it is larger where the trace runs than at
 the 0V/midscale point cal measured at. `scope_do_channel_calibration()` forced the flat
 input to ADC ~128 (the DC-cal center) for the high-rate interleave measurement; an
-uncentered/floating trace sits at ~178, where the mismatch is ~−10 not −6. **Fixed** by
-pushing the interleave-measurement offset to `INTERLEAVE_CAL_LEVEL` (178) via the per-v/div
-`sampleratedcoffsetstep`, restoring the centered offset before the DC-offset adjust so the
-zero level is untouched; the pre-existing symmetric split then writes `-5/+5`. A fixed
+uncentered/floating trace sits at ~178, where the mismatch is ~−10 not −6. First attempt:
+push the interleave-measurement offset to `INTERLEAVE_CAL_LEVEL` (178) via the per-v/div
+`sampleratedcoffsetstep`, restoring the centered offset before the DC-offset adjust. **This
+overshot badly on hardware (commit af8b66f reverts it):** cal reported difference ~55
+(`-27/+28`, d-rows −55) where the manual trim proves the real correction is ~10. Driving the
+DC-offset DAC to park a *shorted* input up at ADC 178 pushes the ADCs into a far more
+divergent regime than a *real signal* swinging to 178 does, so the offset-shifted "run level"
+is not representative of the run operating point — the whole premise of measuring it that way
+was wrong. **Reverted** to measuring the interleave at the centered 0V→128 level (reliably
+~−6 → `-3/+3`); the manual symmetric trim carries it the rest of the way to `-5/+5`. A fixed
 even/odd offset comp still can't cancel a gain-type mismatch at *all* levels, so the manual
-trim remains the final word — this just gives cal a run-representative starting point.
+trim is the final word — cal just gives a repeatable centered starting point.
 Same commit: (a) the cal `r:` residual showed 11553 with peak 2 because
 `measure_high_rate_artifact()`'s stuck-run/mean penalties — meant to reject a clock the FPGA
 can't keep up with during the clock search — misfired on a flat, well-compensated capture
