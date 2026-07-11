@@ -451,6 +451,38 @@ the wrong location at slow timebases) — likely the same P14-vs-Atlan4 copy-rec
 F17, now only reachable at ≥500ms; needs its own pass. Overclock hedgehog at ≥1µs left as
 expected-for-now.
 
+**F22 — interleave cal 6-vs-10 is structural; trim is missing cal's DC re-centre (bench,
+2026-07-11).** Follow-up to F21's sawtooth thread. Ran the full elimination: the cal
+interleave measurement now runs at samplerate 0, over the same `nofsamples` window as
+runtime, under settled multi-frame conditions (`INTERLEAVE_CAL_WARMUP`/`_FRAMES`, commit
+f8b6160), and at the same remapped triggerpoint runtime reads at
+(`interleave_runtime_triggerpoint()`, commit 81bfa13). Cal *still* reports a rock-stable
+diff ~6 (`-3/+3`) where the manual trim needs ~10 (`-5/+5`). Every measurable difference
+*inside* the cal loop is eliminated, so the remaining gap is the one thing cal can't fake:
+**cadence / system activity.** Cal runs conversions back-to-back with the display frozen;
+runtime spaces each conversion behind a full `scope_display_trace_data()` render + UI + USB
+(tens of ms idle between captures), and the even/odd offset evidently grows with that
+spacing (cal tight = 6 < runtime spaced = 10, the consistent direction). Agreed next
+experiment (**not yet built**): pace the cal measurement loop with a ~30–40 ms
+`timer0_delay` between the measured frames (`timer0_delay` is in ms — `timer.c`); if cal
+then climbs toward 10 the cadence was the cause *and* the pacing is the fix, if it stays 6
+it is display/USB activity coupling that can't be replicated without running the render
+pipeline in cal, and the manual trim is the documented answer. The interleave cal is now
+refactored into audited helpers (`interleave_set_centre` / `_settle` /
+`_runtime_triggerpoint` / `_measure_offset` / `_set_compensation`, commit 7453358) — the
+arithmetic was verified correct, not the source of the gap.
+
+Separately, a **real, fixable asymmetry** surfaced (bench): after hand-trimming to `-5/+5`
+the trace is flat but sits noticeably **above** the 0-line (trigger-at-0 confirms the grid
+0 is correct — it's the trace). Cause: `scope_do_channel_calibration()` ends with a DC
+re-centre — it shifts `dc_calibration_offset` by `adc1compensation × dcoffsetstep` so the
+flattened trace stays on 0 — but the manual trim (`sm_handle_trim_actions`) changes only
+`adc1compensation`/`adc2compensation` and **never re-centres**, so collapsing the sawtooth
+onto its (above-0) average leaves the flat line floating up (pre-trim the sawtooth *bottom*
+= the ADC1 samples sits on 0, matching this). **Fix (next session):** mirror cal in the
+trim handler — when it changes `adc1compensation` by Δ, also add `Δ × dcoffsetstep` to
+`dc_calibration_offset` for the affected v/div so the flattened trace re-centres on 0.
+
 ## 5d. GUI-glue audit (2026-07-10 night) — why the GUI "felt rewritten", quantified
 
 Concern: the port was supposed to carry pecostm32's 1014D GUI over, yet placement and
