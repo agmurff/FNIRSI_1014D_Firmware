@@ -3194,6 +3194,20 @@ void scope_display_trace_data(void)
   //disp_xend = 1500;
   
   //Limit on actual start of trace display
+#if PORT_1014D
+  //P14 layout: keep traces inside the window border (grid spans x6..704); Atlan4's wider
+  //limits let the trace paint over the border columns the outline redraw restores
+  if(disp_xstart < 6)
+  {
+    disp_xstart = 6;
+  }
+
+  //And limit on the actual end of the trace display
+  if(disp_xend > 704)
+  {
+    disp_xend = 704;
+  }
+#else
   if(disp_xstart < 3)
   {
     disp_xstart = 3;
@@ -3204,6 +3218,7 @@ void scope_display_trace_data(void)
   {
     disp_xend = 727;
   }
+#endif
   
   //And limit for long view the trace display
   if(disp_xend < 1)
@@ -3430,7 +3445,10 @@ void scope_display_trace_data(void)
   
   //Copy it to the actual screen buffer
 #if PORT_1014D
-  //Redraw 1014D chrome that lies inside the cleared trace rect
+  //Redraw 1014D chrome that lies inside the cleared trace rect. The window border and
+  //the top/bottom shade trapezoids overlap rows 48..57 of the copy rect, so without
+  //this the copy wipes their lower halves and leaves orphaned shade tops above y=48
+  ui_draw_outline();
   ui_display_trigger_settings();
   ui_display_waiting_triggered_text(
       scopesettings.runstate == RUN_STATE_RUNNING ? 0 : 1);
@@ -7165,9 +7183,10 @@ void scope_load_input_calibration_data(void)
     uint16 buffer[256];
     uint32 index;
     uint32  checksum = 0;
+    uint32  cal_valid = 1;
     uint16 *ptr;
     uint32 *ptr32;
-    
+
     //Load the settings data from its sector on the SD card
     if(sd_card_read(INPUT_CALIBRATION_SECTOR, 1, (uint8 *)buffer) != SD_OK)
     {
@@ -7176,17 +7195,46 @@ void scope_load_input_calibration_data(void)
     buffer[0] = 0xFFFF;                 //load default data
     buffer[1] = 0;
     }
-    
+
     //Calculate a checksum over the loaded data
-    for(index=8;index<60;index++) 
+    for(index=8;index<60;index++)
         {
         checksum += buffer[index];
         timer0_delay(1);    //So that FOR is not canceled during C translation
         }
-  
-    //Check if the checksum is a match as well as the version number
-    if(((buffer[0] == (checksum >> 16))&&(buffer[1] == (checksum & 0xFFFF))&&(buffer[0]<0xFFFF)&&(buffer[0]>0))||(reload_cal_data == 1))
-    {       
+
+    //The DC calibration offsets and ADC compensation values live in the settings sector
+    //(written by scope_save_config_data), not in the input calibration sector read above.
+    //Stock Atlan4 only restored them when the input calibration sector checksum was valid,
+    //but that sector is written solely by the 1013D input calibration procedure, so on a
+    //1014D the gate never passes and Base calibration silently reverted on every power
+    //cycle. Restore them on their own plausibility check instead: the reset path calls in
+    //here with a settingsworkbuffer that may have failed the settings sector checksum, so
+    //range-check every value before trusting the block
+    ptr = &settingsworkbuffer[CALIBRATION_SETTING_OFFSET];
+
+    for(index=0;index<12;index++)
+    {
+        //DC offsets steer the FPGA center level; genuine values sit around 860
+        if((ptr[index] < 100) || (ptr[index] > 1600))
+        {
+            cal_valid = 0;
+        }
+    }
+
+    ptr = &settingsworkbuffer[CALIBRATION_SETTING_OFFSET_C];
+
+    for(index=0;index<4;index++)
+    {
+        //ADC interleave compensations are small signed counts
+        if(((int16)ptr[index] < -100) || ((int16)ptr[index] > 100))
+        {
+            cal_valid = 0;
+        }
+    }
+
+    if(cal_valid)
+    {
         //Point to the calibration settings
         ptr = &settingsworkbuffer[CALIBRATION_SETTING_OFFSET];
 
@@ -7201,7 +7249,7 @@ void scope_load_input_calibration_data(void)
         //The last entry is a copy of the fore last value
         scopesettings.channel1.dc_calibration_offset[6] = scopesettings.channel1.dc_calibration_offset[5];
         scopesettings.channel2.dc_calibration_offset[6] = scopesettings.channel2.dc_calibration_offset[5];
-    
+
         //Point to the calibration settings
         ptr = &settingsworkbuffer[CALIBRATION_SETTING_OFFSET_C];
 
@@ -7209,33 +7257,10 @@ void scope_load_input_calibration_data(void)
         scopesettings.channel1.adc1compensation = *ptr++;
         scopesettings.channel1.adc2compensation = *ptr++;
         scopesettings.channel2.adc1compensation = *ptr++;
-        scopesettings.channel2.adc2compensation = *ptr++; 
-         
-        //Point to the input calibration settings
-        ptr32 = (uint32*)&buffer[INPUT_CALIBRATION_SETTING_OFFSET];
-    
-        //Restore the Input calibration values from the saved values
-        for(index=0;index<7;index++,ptr32++)
-        {
-            //Copy the data for both channels
-            scopesettings.channel1.input_calibration[index] = ptr32[0];
-            scopesettings.channel2.input_calibration[index] = ptr32[8];
-        }
-        
-    //Point to the DC shift calibration settings        12
-    ptr32 = (uint32*)&buffer[DC_SHIFT_SETTING_OFFSET];//40
-    
-    scopesettings.channel1.dc_shift_center = ptr32[0];
-    scopesettings.channel1.dc_shift_size   = ptr32[1];
-    scopesettings.channel1.dc_shift_value  = ptr32[2];
-    
-    scopesettings.channel2.dc_shift_center = ptr32[4];
-    scopesettings.channel2.dc_shift_size   = ptr32[5];
-    scopesettings.channel2.dc_shift_value  = ptr32[6];
-    
+        scopesettings.channel2.adc2compensation = *ptr++;
     }
     else
-    {   
+    {
         //Set default channel calibration values
         for(index=0;index<7;index++)
             {
@@ -7243,13 +7268,42 @@ void scope_load_input_calibration_data(void)
             scopesettings.channel1.dc_calibration_offset[index] = 860;//750
             scopesettings.channel2.dc_calibration_offset[index] = 860;//750
             }
-  
+
         //Set default ADC compensation values
         scopesettings.channel1.adc1compensation = 0;
         scopesettings.channel1.adc2compensation = 0;
         scopesettings.channel2.adc1compensation = 0;
-        scopesettings.channel2.adc2compensation = 0; 
-        
+        scopesettings.channel2.adc2compensation = 0;
+    }
+
+    //Check if the checksum is a match as well as the version number
+    if(((buffer[0] == (checksum >> 16))&&(buffer[1] == (checksum & 0xFFFF))&&(buffer[0]<0xFFFF)&&(buffer[0]>0))||(reload_cal_data == 1))
+    {
+        //Point to the input calibration settings
+        ptr32 = (uint32*)&buffer[INPUT_CALIBRATION_SETTING_OFFSET];
+
+        //Restore the Input calibration values from the saved values
+        for(index=0;index<7;index++,ptr32++)
+        {
+            //Copy the data for both channels
+            scopesettings.channel1.input_calibration[index] = ptr32[0];
+            scopesettings.channel2.input_calibration[index] = ptr32[8];
+        }
+
+    //Point to the DC shift calibration settings        12
+    ptr32 = (uint32*)&buffer[DC_SHIFT_SETTING_OFFSET];//40
+
+    scopesettings.channel1.dc_shift_center = ptr32[0];
+    scopesettings.channel1.dc_shift_size   = ptr32[1];
+    scopesettings.channel1.dc_shift_value  = ptr32[2];
+
+    scopesettings.channel2.dc_shift_center = ptr32[4];
+    scopesettings.channel2.dc_shift_size   = ptr32[5];
+    scopesettings.channel2.dc_shift_value  = ptr32[6];
+
+    }
+    else
+    {
         //Set default channel Input calibration values
         for(index=0;index<7;index++)
             {
@@ -7257,15 +7311,15 @@ void scope_load_input_calibration_data(void)
             scopesettings.channel1.input_calibration[index] = signal_adjusters[index];
             scopesettings.channel2.input_calibration[index] = signal_adjusters[index];
             }
-        
+
         scopesettings.channel1.dc_shift_center = 174;
         scopesettings.channel1.dc_shift_size   = 220;
         scopesettings.channel1.dc_shift_value  = 385;
-    
+
         scopesettings.channel2.dc_shift_center = 174;
         scopesettings.channel2.dc_shift_size   = 220;
         scopesettings.channel2.dc_shift_value  = 385;
-    
+
         calibrationfail = 1;    //Ready to input calibration
     }
 }
