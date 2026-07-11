@@ -417,6 +417,34 @@ r/p readout — which now follows the trimmed channel — update beneath the com
 menu. The trim lands in the normal compensation variables, so it persists with the
 settings like a Base calibration result.
 
+**F21 — cal vs. run operating-point mismatch, misfiring residual, roll overlap (bench,
+2026-07-11).** The manual interleave trim (F20) reaching a flat trace at difference 10
+(`-3/+7`) while Base cal produced difference 6 (`-3/+3`) pinned the sawtooth root cause:
+the even/odd ADC mismatch is **gain-type**, so it is larger where the trace runs than at
+the 0V/midscale point cal measured at. `scope_do_channel_calibration()` forced the flat
+input to ADC ~128 (the DC-cal center) for the high-rate interleave measurement; an
+uncentered/floating trace sits at ~178, where the mismatch is ~−10 not −6. **Fixed** by
+pushing the interleave-measurement offset to `INTERLEAVE_CAL_LEVEL` (178) via the per-v/div
+`sampleratedcoffsetstep`, restoring the centered offset before the DC-offset adjust so the
+zero level is untouched; the pre-existing symmetric split then writes `-5/+5`. A fixed
+even/odd offset comp still can't cancel a gain-type mismatch at *all* levels, so the manual
+trim remains the final word — this just gives cal a run-representative starting point.
+Same commit: (a) the cal `r:` residual showed 11553 with peak 2 because
+`measure_high_rate_artifact()`'s stuck-run/mean penalties — meant to reject a clock the FPGA
+can't keep up with during the clock search — misfired on a flat, well-compensated capture
+(a long run of identical samples is the *goal* there, not a stuck FPGA); gated behind a new
+`apply_penalties` arg (1 = clock search, 0 = cal diagnostic + live trim readout). (b) The
+trim now moves the difference `adc2-adc1` symmetrically (one count/detent, `-5/+5` style)
+instead of only bumping `adc2`, matching cal. (c) Roll/sweep timebase overlap: 200ms/100ms/
+50ms/20ms lived in both the long-timebase roll block (indices 7..10) and the short/sweep
+block (11..14), so the dial showed "100ms" twice and the glitchy Atlan4 roll renderer fired
+at 100ms; the `sm_set_time_base()` boundary now keeps roll for ≤500ms only (crossing jumps
+6↔11), making those four settings sweep-only. **Still open:** the roll renderer itself looks
+geometry-broken on the 1014D (trace crawling past the right edge + a trace-area "shadow" at
+the wrong location at slow timebases) — likely the same P14-vs-Atlan4 copy-rect geometry as
+F17, now only reachable at ≥500ms; needs its own pass. Overclock hedgehog at ≥1µs left as
+expected-for-now.
+
 ## 5d. GUI-glue audit (2026-07-10 night) — why the GUI "felt rewritten", quantified
 
 Concern: the port was supposed to carry pecostm32's 1014D GUI over, yet placement and
