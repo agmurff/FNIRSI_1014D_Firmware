@@ -1206,6 +1206,79 @@ uint32 scope_do_baseline_calibration(void)
 #define INTERLEAVE_CAL_WARMUP  4
 #define INTERLEAVE_CAL_FRAMES  8
 
+#if PORT_1014D
+//----------------------------------------------------------------------------------------------------------------------------------
+// 1014D dual-ADC interleave compensation (the "sawtooth" at samplerate 0, i.e. <=200ns/div)
+//
+// The two time-interleaved ADCs have slightly different DC offsets. Even display samples come
+// from ADC2, odd from ADC1, so a constant offset difference paints a 1-sample zig-zag. The
+// read path (fpga_control.c, only when samplerate==0) adds adc1compensation to ADC1 samples
+// and adc2compensation to ADC2 samples. ONLY THEIR DIFFERENCE affects the sawtooth:
+//
+//     displayed_sawtooth = raw_diff + (adc2compensation - adc1compensation)
+//     raw_diff           = mean(ADC2 samples) - mean(ADC1 samples)          [ADC counts]
+//
+// so to null it we need  (adc2compensation - adc1compensation) = -raw_diff.  The common mode
+// (adc1+adc2) is just a DC shift the zero-level / DC cal absorbs, so we split symmetrically.
+//----------------------------------------------------------------------------------------------------------------------------------
+
+//Park this v/div's flat 0V input at the DC-cal centre (ADC ~128) so the interleave is measured
+//at a defined operating point. (An offset-shifted "run level" was tried and overshot badly:
+//driving the offset DAC to park a shorted input high pushes the ADCs into a far more divergent
+//regime than a real signal at that level does.)
+static void interleave_set_centre(PCHANNELSETTINGS s, uint32 voltperdiv)
+{
+  s->samplevoltperdiv = voltperdiv;
+  fpga_set_channel_voltperdiv(s);
+  s->dc_calibration_offset[voltperdiv] = (samplerateaverage[0][voltperdiv] + samplerateaverage[1][voltperdiv]) / 2;
+  fpga_set_channel_offset(s);
+}
+
+//Run the acquisition a few times, discarding the results, so the ADC/FPGA pipeline reaches the
+//same steady state the free-running runtime loop sits in (a single cold shot reads low).
+static void interleave_settle(PCHANNELSETTINGS s, uint32 frames)
+{
+  while(frames--)
+  {
+    fpga_do_conversion();
+    while(fpga_done_conversion() == 0);
+    fpga_read_sample_data(s, 100);
+  }
+}
+
+//Signed raw interleave offset for one v/div, in ADC counts: mean(ADC2) - mean(ADC1), averaged
+//over several settled frames. Positive => ADC2 reads higher than ADC1. The caller must have
+//already selected the fast timebase / samplerate 0.
+static int32 interleave_measure_offset(PCHANNELSETTINGS s, uint32 voltperdiv)
+{
+  int32  acc = 0;
+  uint32 i;
+
+  interleave_set_centre(s, voltperdiv);
+  timer0_delay(40);
+  interleave_settle(s, INTERLEAVE_CAL_WARMUP);
+
+  for(i = 0; i < INTERLEAVE_CAL_FRAMES; i++)
+  {
+    fpga_do_conversion();
+    while(fpga_done_conversion() == 0);
+    fpga_read_sample_data(s, 100);
+    acc += (int32)s->adc2rawaverage - (int32)s->adc1rawaverage;
+  }
+
+  return acc / (int32)INTERLEAVE_CAL_FRAMES;
+}
+
+//Split a raw interleave offset into the symmetric per-ADC compensations that null it: their
+//difference is forced to -offset, the common mode kept minimal.  offset -6 -> (-3, +3).
+static void interleave_set_compensation(PCHANNELSETTINGS s, int32 offset)
+{
+  s->adc1compensation = offset / 2;
+  s->adc2compensation = -(offset - s->adc1compensation);
+}
+//----------------------------------------------------------------------------------------------------------------------------------
+#endif
+
 uint32 scope_do_channel_calibration(void)
 {
   uint32 flag = 1;
@@ -1364,95 +1437,42 @@ uint32 scope_do_channel_calibration(void)
   }
 
 #if PORT_1014D
-  // Re-measure the ADC1 vs ADC2 difference at high rate (where dual-ADC interleave
-  // actually happens) so the compensation can target the static sawtooth.
-  // This gives a "calibration point" appropriate for the <=200ns/div regime.
-  // The earlier measurement (at 2MSa/s) is still used for the center/FAIL checks above.
+  // Measure the ADC1/ADC2 interleave offset at samplerate 0 (where the dual-ADC sawtooth
+  // lives) and set the channel's compensation from it. See the interleave_* helpers above;
+  // the whole point is that only (adc2comp - adc1comp) matters and it must equal -offset.
   {
-    int32 hsum = 0;
-    // Use a fast timebase that exercises 200MSa/s interleaving
-    uint8 saved_tp = scopesettings.timeperdiv;
-    uint8 saved_sr = scopesettings.samplerate;
-    scopesettings.timeperdiv = 32;  // ~20-50ns range, rate 0
+    uint8 saved_tp  = scopesettings.timeperdiv;
+    uint8 saved_sr  = scopesettings.samplerate;
+    int   chidx     = (calibrationsettings.adc1command == 0x20) ? 0 : 1;
+    int32 offsetsum = 0;
+
+    // Select a fast timebase so the FPGA runs the 200MSa/s interleaved acquisition
+    scopesettings.timeperdiv = 32;  // ~20ns/div, samplerate 0
     scopesettings.samplerate = time_per_div_sample_rate[scopesettings.timeperdiv];
     fpga_set_sample_rate(scopesettings.samplerate);
     fpga_set_time_base(scopesettings.timeperdiv);
 
-    int chidx = (calibrationsettings.adc1command == 0x20) ? 0 : 1;
-
-    for(voltperdiv=0;voltperdiv<6;voltperdiv++)
+    // Average the interleave offset over all six v/div (it is v/div independent on the bench)
+    for(voltperdiv = 0; voltperdiv < 6; voltperdiv++)
     {
-      calibrationsettings.samplevoltperdiv = voltperdiv;
-      fpga_set_channel_voltperdiv(&calibrationsettings);
+      int32 offset = interleave_measure_offset(&calibrationsettings, voltperdiv);
 
-      //Center the flat 0V input at ADC ~128 (the DC-cal offset for this v/div) and measure the
-      //interleave mismatch there. NOTE: measuring at a DC-offset-shifted "run level" was tried
-      //(INTERLEAVE_CAL_LEVEL) and badly overshot on hardware (diff ~55 vs the real ~10 the
-      //manual trim proves), because driving the offset DAC to park a shorted input high drives
-      //the ADCs into a far more divergent regime than a real signal at that level does. So cal
-      //measures at center and the manual symmetric trim finishes the run-level correction.
-      calibrationsettings.dc_calibration_offset[voltperdiv] = (samplerateaverage[0][voltperdiv] + samplerateaverage[1][voltperdiv]) / 2;
-      fpga_set_channel_offset(&calibrationsettings);
-
-      timer0_delay(40);
-
-      //Warm up (discarded) so the pipeline is at the same steady state as the runtime loop
-      for(uint32 f = 0; f < INTERLEAVE_CAL_WARMUP; f++)
-      {
-        fpga_do_conversion();
-        while (fpga_done_conversion() == 0);
-        fpga_read_sample_data(&calibrationsettings, 100);
-      }
-
-      //Average several settled frames of the raw ADC2-ADC1 difference
-      {
-        int32 hacc = 0;
-
-        for(uint32 f = 0; f < INTERLEAVE_CAL_FRAMES; f++)
-        {
-          fpga_do_conversion();
-          while (fpga_done_conversion() == 0);
-          fpga_read_sample_data(&calibrationsettings, 100);
-          hacc += (calibrationsettings.adc2rawaverage - calibrationsettings.adc1rawaverage);
-        }
-
-        int32 hd = hacc / (int32)INTERLEAVE_CAL_FRAMES;
-
-        hsum += hd;
-
-        //Keep the per volt/div value for the calibration diagnostic display
-        caldbg_hdiff[chidx][voltperdiv] = hd;
-      }
-    }
-    hsum /= 6;
-
-    // Use the high-rate diff for the actual compensation values (static sawtooth correction).
-    // Symmetric split: only adc2-adc1 affects the sawtooth, the common mode is a DC shift the
-    // zero-level cal absorbs (hsum -10 -> -5/+5).
-    calibrationsettings.adc1compensation = hsum / 2;
-    calibrationsettings.adc2compensation = -1 * (hsum - calibrationsettings.adc1compensation);
-
-    // Measure the residual with the new compensation active at the centered level
-    // (no penalties: a flat, well-compensated capture is the goal here)
-    {
-      calibrationsettings.dc_calibration_offset[5] = (samplerateaverage[0][5] + samplerateaverage[1][5]) / 2;
-      fpga_set_channel_offset(&calibrationsettings);
-
-      //Settle to the same steady state as the measurement above
-      for(uint32 f = 0; f < INTERLEAVE_CAL_WARMUP; f++)
-      {
-        fpga_do_conversion();
-        while (fpga_done_conversion() == 0);
-        fpga_read_sample_data(&calibrationsettings, 100);
-      }
-
-      caldbg_res[chidx] = measure_high_rate_artifact(&calibrationsettings, &caldbg_peak[chidx], 0);
+      offsetsum += offset;
+      caldbg_hdiff[chidx][voltperdiv] = offset;   // per-v/div diagnostic readout
     }
 
-    // Restore for the DC offset adjust below (it walks all v/div using the last comp)
+    // One compensation pair for the channel, from the averaged offset
+    interleave_set_compensation(&calibrationsettings, offsetsum / 6);
+
+    // Diagnostic: residual sawtooth score with the new compensation active, at centre
+    // (apply_penalties 0: a flat, well-compensated capture is the goal, not a stuck clock)
+    interleave_set_centre(&calibrationsettings, 5);
+    interleave_settle(&calibrationsettings, INTERLEAVE_CAL_WARMUP);
+    caldbg_res[chidx] = measure_high_rate_artifact(&calibrationsettings, &caldbg_peak[chidx], 0);
+
+    // Restore the normal acquisition rate/timebase for the DC offset adjust below
     scopesettings.timeperdiv = saved_tp;
     scopesettings.samplerate = saved_sr;
-    // Restore FPGA acquisition rate config so we don't leave it at the test rate
     fpga_set_sample_rate(saved_sr);
     fpga_set_time_base(saved_tp);
   }
