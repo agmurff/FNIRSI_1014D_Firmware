@@ -372,8 +372,36 @@ factory/clock menus (to y=472) and the waiting/triggered text live in the 48..47
 Also: version string + build stamp split onto two font_1 lines at (233, 4)/(233, 16) —
 the single font_2 line ran into the move-speed icon/text at x=330. Open from the same
 bench round: "a bit of chrome" visible below the PECO logo and below the version area
-(y≈48–58 strip) — needs a screenshot to identify; the known residual-touch-chrome class
-is the suspect. F16 (trigger deadlock) bench-verified fixed.
+(y≈48–58 strip) — identified and fixed as F18. F16 (trigger deadlock) bench-verified
+fixed.
+
+**F18 — orphaned shade tops above the trace window (bench 13/14.bmp, 2026-07-11).** The
+"chrome fragments" under the PECO logo (x≈60–100) and under the version text (x≈237–482)
+are the *tops* of `ui_draw_outline()`'s decorative shade trapezoids (rows 44..47): the
+per-frame trace copy rect starts at y=48, so each frame wiped rows 48..57 (shade bottoms
++ window border) while the rows above y=48 survived from setup — not touch chrome after
+all, and present in every build; visibility depended on screen state. **Fixed** by adding
+`ui_draw_outline()` to the 1014D pre-copy chrome refresh in `scope_display_trace_data()`
+(border/shades/cutouts rebuilt into displaybuffertmp each frame; its sidebar lines at
+x711+ fall outside the copied columns, harmless), plus clamping the trace x range to the
+P14 window (6..704 instead of Atlan4's 3..727) so traces don't paint over the restored
+border columns.
+
+**F19 — Base calibration reverted on every hard power cycle (bench 13/14.bmp,
+2026-07-11).** The 77af34b persistence fix was only half the story: the save side works
+(`scope_save_config_data()` writes `dc_calibration_offset[]` + the 4 ADC comps into the
+settings sector), but stock Atlan4's `scope_load_input_calibration_data()` only restores
+those settings-sector values when the **INPUT_CALIBRATION_SECTOR** checksum validates —
+a sector written solely by the 1013D input-calibration procedure, never on a 1014D. So
+the gate always failed and every boot loaded the 860/0 defaults (zero level off by the
+uncompensated amount, comps gone). **Fixed** by splitting the function into two
+independent blocks: settings-sector cal values restore on their own plausibility check
+(all 12 offsets in 100..1600, all 4 comps |x|≤100 — needed because
+`scope_reset_config_data()` calls in with a settingsworkbuffer that may have failed the
+settings checksum), while `input_calibration[]`/dc_shift stay gated on the input-cal
+sector checksum + `reload_cal_data` as before. Side effect (matches stock 1013D intent):
+calibration now also survives Factory settings → Restore defaults, since the workbuffer
+still holds valid data on that path.
 
 ## 5d. GUI-glue audit (2026-07-10 night) — why the GUI "felt rewritten", quantified
 
