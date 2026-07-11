@@ -1269,35 +1269,6 @@ static void interleave_settle(PCHANNELSETTINGS s, uint32 frames)
 }
 
 //Signed raw interleave offset for one v/div, in ADC counts: mean(ADC2) - mean(ADC1), averaged
-//over several settled frames. Positive => ADC2 reads higher than ADC1. The caller must have
-//already selected the fast timebase / samplerate 0.
-static int32 interleave_measure_offset(PCHANNELSETTINGS s, uint32 voltperdiv)
-{
-  int32  acc = 0;
-  uint32 i;
-
-  interleave_set_centre(s, voltperdiv);
-  timer0_delay(40);
-  interleave_settle(s, INTERLEAVE_CAL_WARMUP);
-
-  for(i = 0; i < INTERLEAVE_CAL_FRAMES; i++)
-  {
-    fpga_do_conversion();
-    while(fpga_done_conversion() == 0);
-    fpga_read_sample_data(s, interleave_runtime_triggerpoint());
-    acc += (int32)s->adc2rawaverage - (int32)s->adc1rawaverage;
-  }
-
-  return acc / (int32)INTERLEAVE_CAL_FRAMES;
-}
-
-//Split a raw interleave offset into the symmetric per-ADC compensations that null it: their
-//difference is forced to -offset, the common mode kept minimal.  offset -6 -> (-3, +3).
-static void interleave_set_compensation(PCHANNELSETTINGS s, int32 offset)
-{
-  s->adc1compensation = offset / 2;
-  s->adc2compensation = -(offset - s->adc1compensation);
-}
 //----------------------------------------------------------------------------------------------------------------------------------
 #endif
 
@@ -1433,6 +1404,12 @@ uint32 scope_do_channel_calibration(void)
 
     //Sum the ADC differences
     compensationsum += (calibrationsettings.adc2rawaverage - calibrationsettings.adc1rawaverage);
+
+#if PORT_1014D
+    //Record the per v/div raw ADC2-ADC1 difference (measured here at 2MSa/s, the clean rate
+    //pecostm32 uses) for the calibration diagnostic panel's d1/d2 rows
+    caldbg_hdiff[(calibrationsettings.adc1command == 0x20) ? 0 : 1][voltperdiv] = (int32)calibrationsettings.adc2rawaverage - (int32)calibrationsettings.adc1rawaverage;
+#endif
   }
 
   //Calculate the average of the ADC difference
@@ -1459,35 +1436,22 @@ uint32 scope_do_channel_calibration(void)
   }
 
 #if PORT_1014D
-  // Measure the ADC1/ADC2 interleave offset at samplerate 0 (where the dual-ADC sawtooth
-  // lives) and set the channel's compensation from it. See the interleave_* helpers above;
-  // the whole point is that only (adc2comp - adc1comp) matters and it must equal -offset.
+  // The compensation is now taken straight from pecostm32's 2MSa/s compensationsum above (the
+  // clean rate where the inter-ADC offset reads its true value) -- NOT re-measured at rate 0,
+  // which under-reads it (a rate-0 re-measure here used to clobber the good value down to the
+  // -3/+3 that then needed a manual trim to -5/+5; PORT_AUDIT.md F22). This block is now
+  // DIAGNOSTIC ONLY: it does not touch adc1compensation/adc2compensation, it just measures the
+  // residual sawtooth score at rate 0 (where the comp is applied) so the cal panel can show it.
   {
-    uint8 saved_tp  = scopesettings.timeperdiv;
-    uint8 saved_sr  = scopesettings.samplerate;
-    int   chidx     = (calibrationsettings.adc1command == 0x20) ? 0 : 1;
-    int32 offsetsum = 0;
+    uint8 saved_tp = scopesettings.timeperdiv;
+    uint8 saved_sr = scopesettings.samplerate;
+    int   chidx    = (calibrationsettings.adc1command == 0x20) ? 0 : 1;
 
-    // Select a fast timebase so the FPGA runs the 200MSa/s interleaved acquisition
     scopesettings.timeperdiv = 32;  // ~20ns/div, samplerate 0
     scopesettings.samplerate = time_per_div_sample_rate[scopesettings.timeperdiv];
     fpga_set_sample_rate(scopesettings.samplerate);
     fpga_set_time_base(scopesettings.timeperdiv);
 
-    // Average the interleave offset over all six v/div (it is v/div independent on the bench)
-    for(voltperdiv = 0; voltperdiv < 6; voltperdiv++)
-    {
-      int32 offset = interleave_measure_offset(&calibrationsettings, voltperdiv);
-
-      offsetsum += offset;
-      caldbg_hdiff[chidx][voltperdiv] = offset;   // per-v/div diagnostic readout
-    }
-
-    // One compensation pair for the channel, from the averaged offset
-    interleave_set_compensation(&calibrationsettings, offsetsum / 6);
-
-    // Diagnostic: residual sawtooth score with the new compensation active, at centre
-    // (apply_penalties 0: a flat, well-compensated capture is the goal, not a stuck clock)
     interleave_set_centre(&calibrationsettings, 5);
     interleave_settle(&calibrationsettings, INTERLEAVE_CAL_WARMUP);
     caldbg_res[chidx] = measure_high_rate_artifact(&calibrationsettings, &caldbg_peak[chidx], 0);
