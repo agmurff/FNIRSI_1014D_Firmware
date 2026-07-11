@@ -483,6 +483,28 @@ onto its (above-0) average leaves the flat line floating up (pre-trim the sawtoo
 trim handler — when it changes `adc1compensation` by Δ, also add `Δ × dcoffsetstep` to
 `dc_calibration_offset` for the affected v/div so the flattened trace re-centres on 0.
 
+**F22 addendum — the 6-vs-10 gap is a regression I introduced, not a phantom (bench,
+2026-07-11).** Comparing against pecostm32's original 1014D firmware (which behaves better —
+~11 mV Vpp sawtooth): his `scope_do_channel_calibration()` measures the ADC1/ADC2 offset at
+**2 MSa/s (sample rate 6)** and his read path applies the comp **unconditionally at all
+rates** — i.e. he treats the inter-ADC offset as a fixed hardware property, measured where it
+is clean, applied everywhere. Our tree keeps his measurement verbatim (scope_functions.c
+~1391–1443: `fpga_set_sample_rate(6)`, sum `adc2rawaverage-adc1rawaverage` over 6 v/div,
+`adc1compensation = compensationsum/2`) — but then the `#if PORT_1014D` block I added
+(~1461) **re-measures at rate 0 and overwrites** those comps with the noisy rate-0 reading
+(the stable ~6 → `-3/+3`). So we compute his good value and discard it. This explains
+everything at once: his good behavior (clean 2 MSa/s measurement), our `-3/+3` (rate-0
+clobber), the manual trim to `-5/+5` (restoring the true fixed offset), and the "constant
+across v/div/offset/timebase" evidence (it *is* a fixed property). It is also the real
+content of the cadence theory, so **cadence pacing is superseded — do not build it.**
+**Fix (next session, a revert):** delete the rate-0 re-measurement block so cal uses
+pecostm32's 2 MSa/s `compensationsum` (feed the caldbg diagnostic panel from that loop
+instead of the deleted block), making our comp computation identical to his. Then re-check
+whether the DC-float (trim sits above 0) is also gone, since his path keeps the DC re-centre
+and lacks the clobber. Open question if the revert isn't enough: whether to also drop the
+`samplerate==0` gate on comp application in fpga_control.c to fully match his unconditional
+apply (deferred — one change at a time; the rate-0 sawtooth is the reported symptom).
+
 ## 5d. GUI-glue audit (2026-07-10 night) — why the GUI "felt rewritten", quantified
 
 Concern: the port was supposed to carry pecostm32's 1014D GUI over, yet placement and
