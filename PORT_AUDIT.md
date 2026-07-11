@@ -403,6 +403,20 @@ sector checksum + `reload_cal_data` as before. Side effect (matches stock 1013D 
 calibration now also survives Factory settings → Restore defaults, since the workbuffer
 still holds valid data on that path.
 
+**F20 — Base calibration results panel unreadable (bench report, 2026-07-11).** The
+diagnostic panel printed the residual score at x=664 and the peak at x=684;
+`display_decimal` is left-aligned, so any residual past two digits ran into the peak
+column ("r: 115…" garble). F18/F19 were bench-confirmed fixed in the same report.
+**Fixed** by re-laying the panel out one data class per line (C1/C2 comps + r/p rows,
+then the six per-volt/div d values per channel). Same commit adds the **manual
+interleave trim**: Trim CH1/CH2 items in Factory settings → Sampling clock (menu grew to
+7×31 px, moved up to stay on screen; new `NAV_TRIM_HANDLING` state). OK on a trim row
+turns its numbers yellow and redirects the rotary to that channel's `adc2compensation`
+(±1 per detent, clamped to the ±100 range the F19 restore accepts); trace and the live
+r/p readout — which now follows the trimmed channel — update beneath the composited
+menu. The trim lands in the normal compensation variables, so it persists with the
+settings like a Base calibration result.
+
 ## 5d. GUI-glue audit (2026-07-10 night) — why the GUI "felt rewritten", quantified
 
 Concern: the port was supposed to carry pecostm32's 1014D GUI over, yet placement and
