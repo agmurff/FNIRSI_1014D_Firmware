@@ -609,6 +609,11 @@ interleave-relevant. `pecostm32-RE/`'s per-timebase MCU↔FPGA bus captures ("FP
 should show whether the stock FPGA expects `0x29` each conversion; if it does and we skip it,
 that could be a second contributor (or the whole thing).
 
+**Update (2026-07-12): superseded by F25 — `0x28` was the actual cause. This blocking change
+gave no bench change, and its code (the `INTERLEAVE_QUIET_*` spin + `uart.h` include in
+`scope_acquire_trace_data`) was reverted as inert. The analysis above stands as the record
+that EMI / CPU-and-display activity during the capture is NOT the cause of the sawtooth.**
+
 **F25 — Atlan4 dropped the FPGA `0x28` mode-select the stock silicon needs every conversion
 (RE-capture confirmed, fix applied, 2026-07-12).** The F24 blocking change produced **no
 bench change** → EMI-during-capture is out (the sawtooth is independent of CPU/display
@@ -637,6 +642,23 @@ right after the trigger-enable, matching pecostm32 byte-for-byte. Both variants 
 toward pecostm32's ~11 mV — ideally letting us delete the comp/cal feature entirely and match
 him. **Follow-up if it helps:** the roll/long path (`fpga_set_time_base`, `fpga_control.c:603`)
 still has its `0x28/0x01` commented out — restore it there too for correct roll-mode sampling.
+
+**CONFIRMED ON BENCH (2026-07-12): `0x28` was the root cause — the sawtooth is gone.** After
+the whole F21–F25 hunt, the entire artifact was the two FPGA writes Atlan4 commented out on a
+guess. The sawtooth is now the same small residual pecostm32 has, with comp at 0.
+
+**Post-fix cleanup (2026-07-12):** with the cause known, the experiments that were chasing it
+downstream were returned to best setting. Reverted: **bd188bb** (pin-ADC / drop-dcoffset offset
+model — user chose to restore Atlan4's consistent dcoffset model, since its motivation was the
+disproven operating-point theory and it left positioning half-converted + behind the −4 mV
+measurement-sign bug) and **F24's blocking code** (inert). Kept: **3de7675** (cal uses
+pecostm32's 2 MSa/s comp), **7453358** (cal-helper refactor), **b0daa6b** (comp at all rates,
+matches his), and the **interleave-cal feature** — which now operates on correctly-configured
+hardware (cal and runtime both go through the `0x28` conversion), so it can trim the residual
+below pecostm32's ~11 mV, which he cannot (he has no cal). Re-test the auto-cal; expect small
+valid comps (~±1). Remaining open items to re-verify now that the sawtooth is gone: the trace
+DC level / −4 mV measurement (should improve — smaller comp ⇒ smaller cal DC re-centre shift),
+and the roll-mode `0x28/0x01` follow-up above.
 
 ## 5d. GUI-glue audit (2026-07-10 night) — why the GUI "felt rewritten", quantified
 

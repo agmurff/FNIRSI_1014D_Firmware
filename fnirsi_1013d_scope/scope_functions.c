@@ -20,7 +20,6 @@
 #include "ref_and_math.h"
 #if PORT_1014D
 #include "menu_1014d.h"
-#include "uart.h"
 #endif
 
 // Clock overclock support (1014D only)
@@ -746,24 +745,6 @@ void scope_calculate_trigger_vertical_position()
 
 //----------------------------------------------------------------------------------------------------------------------------------
 
-#if PORT_1014D
-// Interleave EMI quieting (PORT_AUDIT.md F24). Our acquire is non-blocking: fpga_do_conversion()
-// only arms the FPGA and returns, and the main loop then runs a full scope_display_trace_data()
-// framebuffer composite (+ UART key poll) while the FPGA is still capturing. That async display-bus
-// activity, asynchronous to the 200MSa/s interleaved sample clock, modulates the two ADC phases
-// unequally and inflates the even/odd "sawtooth" -- roughly 3x pecostm32's, whose acquire is
-// synchronous (a quiet FPGA-status spin through the whole capture, no rendering) and shows ~11mV
-// with NO interleave compensation at all. At the fast timebases where the sawtooth lives the capture
-// is only microseconds, so we can block here in the same quiet spin pecostm32 uses -- keeping the CPU
-// and display bus idle during the live sample -- with no perceptible cost. Slow rates keep the
-// non-blocking path so the UI stays responsive through multi-ms / roll captures.
-//   Spin exits on: conversion done (sticky scopesettings.conversion_done, so the readout block below
-// still fires) / a key (uart1_get_user_input feeds toprocesscommand, handled next by
-// sm_handle_user_input) / a hang-guard timeout (falls through to the existing non-blocking behaviour).
-#define INTERLEAVE_QUIET_MAX_RATE  6       /* block through capture at samplerate <= 6 (<=2MSa/s, <=~1ms) */
-#define INTERLEAVE_QUIET_TIMEOUT   2000    /* hang guard only; normal exit is on done or key input */
-#endif
-
 void scope_acquire_trace_data(void)
 {
   uint32 data;
@@ -786,17 +767,6 @@ void scope_acquire_trace_data(void)
     //Flag conversion in progres
     scopesettings.display_data_done = 0;
 
-#if PORT_1014D
-    //At fast timebases, stay synchronous like pecostm32: keep the CPU/display bus quiet through the
-    //capture so it does not couple into the interleaved ADC (see the block comment above). The readout
-    //below runs this same frame once conversion_done latches.
-    if(scopesettings.samplerate <= INTERLEAVE_QUIET_MAX_RATE)
-    {
-      uint32 quiet_timeout = INTERLEAVE_QUIET_TIMEOUT;
-
-      while((fpga_done_conversion() == 0) && (uart1_get_user_input() == 0) && (--quiet_timeout));
-    }
-#endif
 
   }
   
@@ -3643,11 +3613,10 @@ int32 scope_get_y_sample(PCHANNELSETTINGS settings, int32 index)
     //sample = settings->traceposition + sample + ((settings->dcoffset*100)/settings->dc_shift_size);
     //if(settings->displayvoltperdiv == 6) sample = settings->traceposition + sample + (((settings->dcoffset*100)/settings->dc_shift_size)*2);
       //else sample = settings->traceposition + sample + ((settings->dcoffset*100)/settings->dc_shift_size);
-    //Stage 1 of adopting pecostm32's positioning (PORT_AUDIT.md F23): position purely in the
-    //display domain via traceposition. The ADC is now pinned at centre (fpga_set_channel_offset)
-    //so no dcoffset compensation is applied here. The XY / FIR / sinc display paths still carry
-    //the old dcoffset term until this stage is validated on the bench.
-    sample = settings->traceposition + sample;
+    if(settings->displayvoltperdiv == 6) sample = settings->traceposition + sample + (((settings->dcoffset*100)/settings->dc_shift_size)*2);
+    //if(settings->displayvoltperdiv == 6) sample = ((settings->traceposition)) + sample + ((settings->dcoffset*100)/settings->dc_shift_size); //else sample = settings->traceposition + sample + ((settings->dcoffset*100)/settings->dc_shift_size);
+    else sample = settings->traceposition + sample + ((settings->dcoffset*100)/settings->dc_shift_size);
+    //else sample = settings->traceposition + sample;
     //****************************************************************************
 
     //Limit sample on min displayable

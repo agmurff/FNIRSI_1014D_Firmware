@@ -85,7 +85,23 @@ Atlan4's 35-entry `timeperdiv` space: indices 0–10 = "long" (50 s/div … 20 m
   trigger system** (`0x0F` data `0x01`); the rate still goes via `0x0D`, and acquisition
   switches to the roll-mode path `scope_get_long_timebase_data()` in the main loop.
 
-## Open signal-quality issue: sawtooth at ≤200 ns/div (bench, 2026-07-09)
+## SOLVED: sawtooth at ≤200 ns/div — missing FPGA `0x28` mode-select (bench, 2026-07-12)
+
+**Root cause (PORT_AUDIT.md F25):** Atlan4 commented out the `0x28` "mode select" write in
+`fpga_do_conversion` (and its roll-mode `0x28/0x01` in `fpga_set_time_base`) on a wrong guess
+(`fpga_control.c` "`0X28 not support in FPGA???`"). But `pecostm32-RE/FPGA explained/` proves the
+stock FPGA is fed `0x28` **every** conversion (`0x00` for <100 mS, `0x01` for ≥100 mS/roll), so we
+were running the interleaved dual-ADC front end without the per-conversion mode-select the silicon
+requires — leaving the even/odd offset ~3× larger than pecostm32's. Restoring `0x29/0x01` +
+`0x28/0x00` (stock `fw_FPGA==1` path, matching pecostm32 byte-for-byte) **eliminated the sawtooth**;
+the residual is now the same small offset pecostm32 has, with comp at 0. The interleave cal is kept
+(now valid, since cal and runtime share the `0x28` conversion) to trim that residual further —
+something pecostm32 can't, having no cal. **Follow-up:** restore roll-mode `0x28/0x01` in
+`fpga_set_time_base` (still commented). The original investigation notes are kept below for the
+record — the "clean ⇒ software" branch of the A/B test is what proved out (it was firmware, and the
+diff was this one missing write).
+
+### Original investigation notes (2026-07-09, pre-solution)
 
 Symptom: at 200 ns/div and faster the trace turns into a sawtooth (also seen in the PORT_A
 era; user recalls stock firmware filters aggressively and the pecostm32 forks deliberately

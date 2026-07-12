@@ -185,8 +185,10 @@ hardware): AUTO no longer paints touch chrome (menu.c's shared chrome functions 
 their `ui_` equivalents on 1014D), no more false flat trace or touch-scroller flash on
 timebase changes (`scope_preset_values()` guards), the Position trim works
 (`scope_calculate_sample_range_properties()` was truncated — never set
-`trigger_position_min/max`), and AUTO clears `long_mode`. **Open:** sawtooth at ≤200 ns/div —
-analysis + A/B test recipe in FPGA_NOTES.md; Base calibration no longer changes the sampling
+`trigger_position_min/max`), and AUTO clears `long_mode`. **SOLVED (2026-07-12, F25):** the
+≤200 ns/div sawtooth was Atlan4 commenting out the FPGA `0x28` mode-select in `fpga_do_conversion`
+(wrong "not support" guess); restored on the stock `fw_FPGA==1` path, bench-confirmed gone
+(PORT_AUDIT.md F25). Base calibration no longer changes the sampling
 clock (2026-07-10 — it used to overclock first and then calibrate *at* the overclock, making
 the sawtooth worse; clock experiments now live in Factory settings → Sampling clock).
 2026-07-10 night screenshot-driven pass (PORT_AUDIT.md §5c, F12–F15; verify pending):
