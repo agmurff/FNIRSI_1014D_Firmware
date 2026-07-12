@@ -609,6 +609,35 @@ interleave-relevant. `pecostm32-RE/`'s per-timebase MCU↔FPGA bus captures ("FP
 should show whether the stock FPGA expects `0x29` each conversion; if it does and we skip it,
 that could be a second contributor (or the whole thing).
 
+**F25 — Atlan4 dropped the FPGA `0x28` mode-select the stock silicon needs every conversion
+(RE-capture confirmed, fix applied, 2026-07-12).** The F24 blocking change produced **no
+bench change** → EMI-during-capture is out (the sawtooth is independent of CPU/display
+activity during the sample). User re-clarified the key fact: manually setting comp to −5/+5
+**does flatten the sawtooth to just noise** — so comp works and the sawtooth is a genuine raw
+even/odd offset; the only mystery is why *our* raw offset needs −5/+5 while pecostm32's needs
+nothing on the same silicon. Ran the last untried acquisition-*setup* difference. Our
+`fpga_do_conversion` sends **no `0x28`** and **no `0x29`** — Atlan4 commented both out on a
+guess (`fpga_control.c:603` "`0X28 not support in FPGA???`"). But:
+- `pecostm32-RE/FPGA explained/FPGA explained.txt:76`: **`0x28` = "mode select. `0x00` for all
+  time base below 100mS, `0x01` for 100mS and up."**
+- Every fast-timebase `*_signal_data_read_sequence.txt` shows the **stock** FPGA fed
+  `command: 0x28 write data: 0x00` each conversion (roll captures show `0x01`).
+- pecostm32's firmware — clean, **zero interleave comp**, on this exact stock unit — sends
+  `0x29/0x01` then `0x28/0x00` in `fpga_do_conversion` (ref `fpga_control.c:499/503`).
+- `0x29` is **not** in the stock-firmware capture (a pecostm32 addition; harmless on stock).
+
+So we have been running the dual-ADC front end **without the per-conversion mode-select the
+silicon documents**, leaving the interleave in a default/unconfigured state — a clean
+mechanism for an oversized raw even/odd offset that comp then has to paper over with −5/+5,
+and the last acquisition difference not yet eliminated (everything downstream is byte-identical
+to his — F24). **Fix applied** (`fpga_do_conversion`, `#if PORT_1014D` + `fw_FPGA==1` so the
+untestable 1013D and the PECO `fw_FPGA>1` paths are untouched): send `0x29/0x01` then `0x28/0x00`
+right after the trigger-enable, matching pecostm32 byte-for-byte. Both variants at baseline
+(257/266). **Prediction:** if `0x28` configures the interleave, the raw (comp=0) sawtooth drops
+toward pecostm32's ~11 mV — ideally letting us delete the comp/cal feature entirely and match
+him. **Follow-up if it helps:** the roll/long path (`fpga_set_time_base`, `fpga_control.c:603`)
+still has its `0x28/0x01` commented out — restore it there too for correct roll-mode sampling.
+
 ## 5d. GUI-glue audit (2026-07-10 night) — why the GUI "felt rewritten", quantified
 
 Concern: the port was supposed to carry pecostm32's 1014D GUI over, yet placement and

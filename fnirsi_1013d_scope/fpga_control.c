@@ -624,12 +624,27 @@ void fpga_do_conversion(void)
     fpga_write_byte(0x01);
   }
 
-  //Set the FPGA for short time base mode
-  //fpga_write_cmd(0x28);
-  //fpga_write_byte(0x00);
-  
+  //Set the FPGA for dual ADC mode + short time base mode. Atlan4 commented these out on a wrong
+  //"0x28 not support" guess (see line ~603), but pecostm32-RE's bus captures prove the STOCK 1014D
+  //FPGA is fed 0x28 every conversion -- FPGA explained.txt:76 ("mode select. 0x00 for all time base
+  //below 100mS, 0x01 for 100mS and up"), confirmed in every *_signal_data_read_sequence.txt at fast
+  //timebases (0x28/0x00). pecostm32's firmware -- clean, no interleave comp, on this exact stock unit
+  //-- sends 0x29/0x01 then 0x28/0x00 right here. Omitting them left our dual-ADC interleave in a
+  //default, unconfigured mode: the leading remaining suspect for our oversized sawtooth. Stock FPGA
+  //only (fw_FPGA==1); the PECO fw_FPGA>1 paths keep their own 0x0B/0x0C setup below. (PORT_AUDIT.md F25)
+#if PORT_1014D
+  if(fpgasettings.fw_FPGA == 1)
+  {
+    //Dual ADC mode (pecostm32 sends this; not present in the stock-firmware capture, harmless on stock)
+    fpga_write_cmd(0x29);
+    fpga_write_byte(0x01);
 
-  
+    //Short time base mode (0x00 = fast / <100mS; roll / >=100mS would use 0x01)
+    fpga_write_cmd(0x28);
+    fpga_write_byte(0x00);
+  }
+#endif
+
   //Reset the sample system
   fpga_write_cmd(0x01);
   fpga_write_byte(0x01);
