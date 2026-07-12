@@ -660,6 +660,20 @@ valid comps (~±1). Remaining open items to re-verify now that the sawtooth is g
 DC level / −4 mV measurement (should improve — smaller comp ⇒ smaller cal DC re-centre shift),
 and the roll-mode `0x28/0x01` follow-up above.
 
+**F26 — restored pecostm32's anti-glitch ready double-check (bench, 2026-07-12).** After F25
+fixed the sawtooth, a new symptom: occasional **noise peaks** (Vpp wandering 10→32 mV, 10 =
+pecostm32's level), most visible at slow timebases where one bad frame stands out — appeared
+*with* the `0x28` fix. Cause: in `fpga_do_conversion` after the reset+`0x05` ready command,
+pecostm32 reads the ready flag **twice** (his `fpga_control.c:514/517`, second read commented
+"Test again to make sure it was no glitch?????"); Atlan4 kept only one read and commented the
+second out. Before F25 the FPGA wasn't in the proper fast dual-ADC mode and the sawtooth masked
+any premature-ready glitch; with `0x28` now engaging a clean capture, a stray early "ready" read
+produces a bad frame → the peaks. **Fix:** restore the second ready-read — bounded with the same
+`>2000000` timeout as the first wait (keeping Atlan4's anti-hang guard rather than pecostm32's
+unbounded spin), unconditional (core FPGA handshake, matches his 1013D + 1014D). One-liner class
+of the same lesson as F25: Atlan4 trimmed pecostm32's defensive FPGA handshake on assumptions, and
+the removals only bite once the acquisition is otherwise correct. Both variants at baseline.
+
 ## 5d. GUI-glue audit (2026-07-10 night) — why the GUI "felt rewritten", quantified
 
 Concern: the port was supposed to carry pecostm32's 1014D GUI over, yet placement and

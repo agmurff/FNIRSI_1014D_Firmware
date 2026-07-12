@@ -659,9 +659,19 @@ void fpga_do_conversion(void)
     }
   }
   
-  //Test again to make sure it was no glitch?????
-  //while((fpga_read_byte() & 1) == 0);
-  
+  //Test again to make sure it was no glitch. pecostm32 double-reads the reset-ready flag here
+  //("make sure it was no glitch") and Atlan4 had commented it out. With the 0x28 mode-select now
+  //engaging the proper fast dual-ADC capture, a premature ready read surfaces as occasional noise
+  //peaks (was masked by the sawtooth before F25). Restored -- bounded like the first wait so we
+  //keep Atlan4's anti-hang timeout instead of pecostm32's unbounded spin. (PORT_AUDIT.md F26)
+  {
+    uint32 fpga_ready_timeout = 0;
+    while((fpga_read_byte() & 1) == 0)
+    {
+      if(++fpga_ready_timeout > 2000000) break;
+    }
+  }
+
   //posielat ked je sytem v resete, aby neprepisal udaje zachodu
   
   if(fpgasettings.fw_FPGA > 1) 
