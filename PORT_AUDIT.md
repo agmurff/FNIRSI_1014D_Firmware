@@ -554,6 +554,61 @@ slow-rate hedgehog risk and gave no benefit) to keep the tree consistent while t
 cause is hunted. Commits 3de7675 (drop my rate-0 clobber) and 7453358 (helper refactor) are
 worth keeping regardless (they make our comp path match his and readable).
 
+**F24 — the interleave sawtooth is EMI: our non-blocking acquire renders *during* the live
+capture; his is synchronous and quiet (bench + full source diff, 2026-07-12).** Two user
+corrections retired the whole F22/F23 framing: (1) **the FPGA is not MCU-reprogrammable** —
+FEL-loading pecostm32's firmware swaps only the MCU program; FPGA bitstream, clock and
+bootloader are untouched, so the difference is 100% in MCU firmware (my mid-session "it's the
+bitstream" guess was wrong). (2) **pecostm32 has no interleave calibration at all** — comp=0,
+no cal UI — yet his sawtooth is only ~11 mV with its *bottom on the 0-line*. So the sawtooth
+is a **raw acquisition artifact whose size is set by the display-measurement path, not the
+cal** (we were polishing a bandaid), and ours is ~3× his: at −5/+5 ≈ his 11 mV, at −3/+3 =
+21 mV, so raw (comp=0) extrapolates to ~30–36 mV. The "trim lifts the trace off 0" effect is
+now fully explained: our symmetric split adds +5 to ADC1 (which sat *on* 0) and −5 to ADC2,
+so the flattened line meets at their midpoint (~+7 mV); pecostm32 keeps the bottom on 0
+precisely because he never comps.
+
+Full source diff (this session) confirmed **every** function in the ADC→screen chain is
+functionally identical to his reference tree — read path (`fpga_read_adc_data`), the
+`checkfirstadc` rail-match (byte-identical and inactive at mid-scale), display transform
+(`scope_get_y_sample`), renderer, the *entire* calibration incl. the DC re-centre,
+`fpga_set_sample_rate`, the `sample_rate_settings` clock-divider table, and `fpga_init`. The
+one **structural** divergence is *when the CPU is busy relative to the capture*:
+- **His** `scope_acquire_trace_data` (ref `scope_functions.c:24`) is **blocking**:
+  `fpga_do_conversion` (ref `fpga_control.c:482`) spins on `while((fpga_read_byte()&1)==0)` —
+  a quiet FPGA-status poll — through the trigger wait and capture; his main loop is
+  `acquire(blocks) → render → acquire`. The render **never** overlaps a capture.
+- **Ours** is **non-blocking**: `fpga_do_conversion` (`fpga_control.c:609`) returns at
+  reset-ready without waiting for the capture; readout is deferred via `display_data_done`, so
+  between arm and readout the main loop runs a full `scope_display_trace_data()` framebuffer
+  composite (twice — `scope_functions.c:908` and the loop's `fnirsi_1013d_scope.c:444`) **+
+  UART key poll while the FPGA is armed/capturing.** That high-current, bursty display-bus
+  activity, asynchronous to the 200 MSa/s interleave clock, modulates the two ADC phases
+  unequally and inflates the even/odd offset. (This is the textbook MCU-ADC app-note rule:
+  keep the CPU/bus quiet during conversion.) It also matches "susceptible to EMI" and the
+  ~3× magnitude, and is the real content of F22's abandoned "cadence/activity" theory.
+
+**Fix applied (`scope_functions.c` `scope_acquire_trace_data`, `#if PORT_1014D`):** at fast
+timebases (`scopesettings.samplerate <= INTERLEAVE_QUIET_MAX_RATE`, =6 / ≤2 MSa/s, where a
+capture is ≤~1 ms so blocking is imperceptible) block right after arming in pecostm32's quiet
+spin — `while((fpga_done_conversion()==0) && (uart1_get_user_input()==0) && (--quiet_timeout))`
+— so the display composite runs only *after* readout, never during the sample. Exits on done
+(`conversion_done` is sticky → the readout `if` still fires this frame), on a key (stashed in
+`toprocesscommand` for `sm_handle_user_input`), or on a hang-guard timeout (falls through to
+the old non-blocking path). Slow/roll rates keep the non-blocking path for UI responsiveness.
+Both variants at baseline (257 / 266). **Prediction to bench-test:** the raw sawtooth drops
+toward his ~11 mV — possibly enough to **drop the comp/trim feature entirely** and match him.
+If it only *partially* drops, widen `INTERLEAVE_QUIET_MAX_RATE` and/or pursue the secondary
+lead.
+
+**Secondary lead (not touched — needs the RE captures, no inventing FPGA magic):** his
+`fpga_do_conversion` sends `0x29`/`0x01` ("dual ADC mode") and `0x28`/`0x00` before every
+capture; **ours sends neither** on the stock (`fw_FPGA==1`) path (`0x28` commented at
+`fpga_control.c:628`, no `0x29`). That is literally the dual-ADC setup and is directly
+interleave-relevant. `pecostm32-RE/`'s per-timebase MCU↔FPGA bus captures ("FPGA explained")
+should show whether the stock FPGA expects `0x29` each conversion; if it does and we skip it,
+that could be a second contributor (or the whole thing).
+
 ## 5d. GUI-glue audit (2026-07-10 night) — why the GUI "felt rewritten", quantified
 
 Concern: the port was supposed to carry pecostm32's 1014D GUI over, yet placement and
