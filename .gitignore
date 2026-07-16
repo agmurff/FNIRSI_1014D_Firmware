@@ -11,5 +11,8 @@
 # Bench screenshots copied off the scope's SD card for analysis
 /fnirsi_1013d_scope/*.bmp
 
+# Saved copy of the EEVBlog forum thread on this port, kept locally for reference
+/fnirsi_1013d_scope/EEVBlog_FNIRSI_1014D_port.html
+
 # opencode agent workspace
 /.opencode/
