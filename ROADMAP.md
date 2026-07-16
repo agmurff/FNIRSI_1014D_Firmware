@@ -105,3 +105,23 @@ Written 2026-07-09 after the port audit + fix pass (PORT_AUDIT.md). Ordered roug
 19. **Single-source the agent docs** — CLAUDE.md and AGENTS.md overlap and will drift;
     either make one a thin pointer to the other or symlink them. The deep content now lives
     in PORT_AUDIT.md / FPGA_NOTES.md / BOOT_NOTES.md, so both entry docs can shrink.
+
+## Measurement precision & calibration (2026-07-12, PORT_AUDIT F28/F30)
+
+20. **Honest measurement/trigger precision (F28, Tier 1 — cheap, display-only, both variants).**
+    Trigger level and single-sample measurements (Vpp/Vmax/Vmin) show **integer mV** — kill the
+    fake `X.00` hundredths (trigger is *set* in 1 mV steps; those measurements resolve ~1 ADC
+    code ≈ 1.5 mV, so decimals are fiction). `ui_print_value`/`ui_display_voltage` in menu_1014d.c.
+    *Done in code 2026-07-12 (PORT_AUDIT F28 implementation; hardware-verify pending).*
+21. **Recover the average's oversampling resolution (F28, Tier 2).** Defer the `/samplecount`
+    division in `fpga_read_sample_data` until *after* mV scaling so Vavg/Vrms keep the sub-mV
+    resolution that averaging 1500 samples provides (~11–12-bit DC via dither). Keep the integer
+    `average` for control paths (50 %/autoset), add a high-res display value; then Vavg decimals
+    mean something.
+    *Done in code for Vavg 2026-07-12 (`averagesum` + hi-res `ui_display_vavg`; hardware-verify
+    pending). Vrms still integer-divides then integer-`isqrt`s — open.*
+22. **Zero a shorted channel in Base calibration (F30).** Root-cause and fix the non-repeatable
+    +7–10 mV residual on a grounded input (trace above 0 V). Gate on the pecostm32 shorted-input
+    A/B first (his ~0 vs ours +7 ⇒ our cal; both +7 ⇒ inherent front-end).
+23. **Guard disabled-channel measurements (F29).** `ui_display_measurements` draws every slot
+    unconditionally; blank/dash slots whose channel is disabled (fixes CH2 showing −22 V).

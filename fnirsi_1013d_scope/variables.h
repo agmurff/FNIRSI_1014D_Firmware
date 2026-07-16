@@ -631,6 +631,7 @@ struct tagChannelSettings
   int32  min;
   int32  max;
   int32  average;
+  int32  averagesum;   //Pre-/samplecount compensated sample sum, for high-resolution Vavg (PORT_AUDIT F28)
   int32  center;
   int32  peakpeak;
   uint32 rms;

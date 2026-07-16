@@ -875,6 +875,10 @@ void fpga_read_sample_data(PCHANNELSETTINGS settings, uint32 triggerpoint)
   //Save the calculated measurements
   settings->adc2rawaverage = settings->rawaverage;
   
+  //Preserve the pre-division compensated sample sum so ui_display_vavg can recover the
+  //oversampling resolution -- dividing to a whole ADC code here throws it away (PORT_AUDIT F28)
+  settings->averagesum = settings->average;
+
   //Calculate the overall average
   settings->average /= scopesettings.samplecount;
 

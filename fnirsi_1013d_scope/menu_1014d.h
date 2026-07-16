@@ -228,7 +228,7 @@ void ui_display_duty_min(uint32 ypos, PCHANNELSETTINGS settings);
 
 void ui_display_duty_cycle(uint32 ypos, PCHANNELSETTINGS settings, uint32 value);
 void ui_display_voltage(uint32 ypos, PCHANNELSETTINGS settings, int32 value, uint32 signedvalue);
-void ui_print_value(uint32 ypos, int32 value, uint32 scale, char *designator, uint32 signedvalue);
+void ui_print_value(uint32 ypos, int32 value, uint32 scale, char *designator, uint32 signedvalue, int32 resolution);
 uint32 ui_print_decimal(uint32 xpos, uint32 ypos, int32 value, uint32 decimal);
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -250,7 +250,7 @@ void ui_msm_display_duty_plus(uint32 xpos, uint32 ypos, PCHANNELSETTINGS setting
 void ui_msm_display_duty_min(uint32 xpos, uint32 ypos, PCHANNELSETTINGS settings);
 
 void ui_msm_display_voltage(PCHANNELSETTINGS settings, int32 value);
-void ui_msm_print_value(char *buffer, int32 value, uint32 scale, char *designator);
+void ui_msm_print_value(char *buffer, int32 value, uint32 scale, char *designator, int32 resolution);
 char *ui_msm_print_decimal(char *buffer, int32 value, uint32 decimals, uint32 negative);
 
 //----------------------------------------------------------------------------------------------------------------------------------

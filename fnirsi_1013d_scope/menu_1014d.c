@@ -1065,8 +1065,9 @@ void ui_display_trigger_vertical_position(void)
     //Multiply with the scaling factor for the given channel to get the level expressed in volts
     volts = delta * vcd->mul_factor;
 
-    //Format the voltage for displaying
-    ui_msm_print_value(globaldisplaytext, volts, vcd->volt_scale, "V");
+    //Format the voltage for displaying -- one pixel of level == mul_factor, so cap to integer mV
+    //(the level is set in whole-mV steps; the decimals were fabricated -- PORT_AUDIT F28)
+    ui_msm_print_value(globaldisplaytext, volts, vcd->volt_scale, "V", vcd->mul_factor);
 
     //The text is drawn in white and basic font
     display_set_fg_color(COLOR_WHITE);
@@ -1103,7 +1104,7 @@ void ui_display_trigger_horizontal_position(void)
     // pixels consistent with the labeled time/div - scaling again would double-correct.
 
     //Format the time for displaying
-    ui_msm_print_value(globaldisplaytext, delta, tcd->time_scale, "s");
+    ui_msm_print_value(globaldisplaytext, delta, tcd->time_scale, "s", 0);
 
     //The text is drawn in white with a basic font
     display_set_font(&font_1);
@@ -1427,7 +1428,7 @@ void ui_display_channel_position(PCHANNELSETTINGS settings)
   volts = delta * vcd->mul_factor;
 
   //Format the voltage for displaying
-  ui_msm_print_value(globaldisplaytext, volts, vcd->volt_scale, "V");
+  ui_msm_print_value(globaldisplaytext, volts, vcd->volt_scale, "V", 0);
   
   //Colors are different when disabled or enabled
   if(settings->enable)
@@ -1571,8 +1572,31 @@ void ui_display_vmin(uint32 ypos, PCHANNELSETTINGS settings)
 
 void ui_display_vavg(uint32 ypos, PCHANNELSETTINGS settings)
 {
-  //For the average take of the center ADC value
-  ui_display_voltage(ypos, settings, settings->average - 128, 1);
+  PVOLTCALCDATA vcd = (PVOLTCALCDATA)&volt_calc_data[settings->magnification][settings->displayvoltperdiv];
+  int32         resolution;
+  int64         volts;
+
+  //High-resolution average: divide by samplecount LAST so the ~5 bits of oversampling that
+  //averaging ~1500 samples earns survive into the reading, instead of integer-truncating to a
+  //whole ADC code first (PORT_AUDIT F28). averagesum is the pre-division compensated sample sum.
+  volts = (int64)settings->averagesum - ((int64)128 * (int64)scopesettings.samplecount);
+  volts = (volts * (int64)signal_adjusters[settings->samplevoltperdiv]) >> VOLTAGE_SHIFTER;
+
+  //Scale the data based on the two volt per div settings when they differ
+  //This is needed when the screen is frozen and zooming is applied
+  if(settings->displayvoltperdiv != settings->samplevoltperdiv)
+  {
+    //Scaling factor is based on the two volts per division settings
+    volts = (volts * (int64)vertical_scaling_factors[settings->displayvoltperdiv][settings->samplevoltperdiv]) / 10000;
+  }
+
+  volts = (volts * (int64)vcd->mul_factor) / (int64)scopesettings.samplecount;
+
+  //One averaged step is ~1 ADC code / sqrt(N); use a conservative /32 (~5 bits) so the readout
+  //gains about one honest decimal, never more than the field can hold.
+  resolution = (((int32)signal_adjusters[settings->samplevoltperdiv] >> VOLTAGE_SHIFTER) * vcd->mul_factor) / 32;
+
+  ui_print_value(ypos, (int32)volts, vcd->volt_scale, "V", 1, resolution);
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -1624,7 +1648,7 @@ void ui_display_freq(uint32 ypos, PCHANNELSETTINGS settings)
   }
 
   //Format the frequency for displaying
-  ui_print_value(ypos, frequency, freq_calc_data[scopesettings.samplerate].freq_scale, "Hz", 0);
+  ui_print_value(ypos, frequency, freq_calc_data[scopesettings.samplerate].freq_scale, "Hz", 0, 0);
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -1639,7 +1663,7 @@ void ui_display_cycle(uint32 ypos, PCHANNELSETTINGS settings)
   }
 
   //Format the cycle time for displaying
-  ui_print_value(ypos, time, time_calc_data[scopesettings.samplerate].time_scale, "s", 0);
+  ui_print_value(ypos, time, time_calc_data[scopesettings.samplerate].time_scale, "s", 0, 0);
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -1654,7 +1678,7 @@ void ui_display_time_plus(uint32 ypos, PCHANNELSETTINGS settings)
   }
 
   //Format the high part time for displaying
-  ui_print_value(ypos, time, time_calc_data[scopesettings.samplerate].time_scale, "s", 0);
+  ui_print_value(ypos, time, time_calc_data[scopesettings.samplerate].time_scale, "s", 0, 0);
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -1669,7 +1693,7 @@ void ui_display_time_min(uint32 ypos, PCHANNELSETTINGS settings)
   }
 
   //Format the low part time for displaying
-  ui_print_value(ypos, time, time_calc_data[scopesettings.samplerate].time_scale, "s", 0);
+  ui_print_value(ypos, time, time_calc_data[scopesettings.samplerate].time_scale, "s", 0, 0);
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -1742,13 +1766,17 @@ void ui_display_voltage(uint32 ypos, PCHANNELSETTINGS settings, int32 value, uin
   //Multiply with the scaling factor for the channel settings
   volts *= vcd->mul_factor;
 
+  //One ADC code expressed in the same fixed-point units as 'volts', so ui_print_value can cap the
+  //decimals to what the 8-bit ADC actually resolves at this range (PORT_AUDIT F28)
+  int32 resolution = ((int32)signal_adjusters[settings->samplevoltperdiv] >> VOLTAGE_SHIFTER) * vcd->mul_factor;
+
   //Format the voltage for displaying
-  ui_print_value(ypos, volts, vcd->volt_scale, "V", signedvalue);
+  ui_print_value(ypos, volts, vcd->volt_scale, "V", signedvalue, resolution);
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
 
-void ui_print_value(uint32 ypos, int32 value, uint32 scale, char *designator, uint32 signedvalue)
+void ui_print_value(uint32 ypos, int32 value, uint32 scale, char *designator, uint32 signedvalue, int32 resolution)
 {
   char   *buffer = globaldisplaytext;
   uint32  x = MEASUREMENT_VALUE_X;
@@ -1797,6 +1825,7 @@ void ui_print_value(uint32 ypos, int32 value, uint32 scale, char *designator, ui
 
       //Bring the value in range
       value /= 1000;
+      resolution /= 1000;
     }
 
     //Format the remainder for displaying. Only 3 digits are allowed to be displayed
@@ -1809,13 +1838,25 @@ void ui_print_value(uint32 ypos, int32 value, uint32 scale, char *designator, ui
     {
       //More then 1000 but less then 10000 means xx.y
       value /= 10;
+      resolution /= 10;
       d = 1;
     }
     else
     {
       //More then 10000 and less then 100000 means xxx
       value /= 100;
+      resolution /= 100;
       d = 0;
+    }
+
+    //Cap the shown decimals to the real resolution -- never print a digit finer than one ADC
+    //code (or the oversampled step for the average). resolution==0 means "no cap", so the Hz/s
+    //callers keep their original 3-significant-figure behaviour (PORT_AUDIT F28).
+    while((d > 0) && (resolution > 1) && (value >= 10))
+    {
+      value /= 10;
+      resolution /= 10;
+      d--;
     }
 
     //Draw the value on the display with the needed decimals
@@ -2784,7 +2825,7 @@ void ui_msm_display_freq(uint32 xpos, uint32 ypos, PCHANNELSETTINGS settings)
   if(settings->frequencyvalid)
   {
     //Format the frequency for displaying
-    ui_msm_print_value(globaldisplaytext, settings->frequency, freq_calc_data[scopesettings.samplerate].freq_scale, "Hz");
+    ui_msm_print_value(globaldisplaytext, settings->frequency, freq_calc_data[scopesettings.samplerate].freq_scale, "Hz", 0);
   }
   else
   {
@@ -2800,7 +2841,7 @@ void ui_msm_display_cycle(uint32 xpos, uint32 ypos, PCHANNELSETTINGS settings)
   if(settings->frequencyvalid)
   {
     //Format the time for displaying
-    ui_msm_print_value(globaldisplaytext, (((uint64)settings->periodtime * time_calc_data[scopesettings.samplerate].mul_factor) >> 20), time_calc_data[scopesettings.samplerate].time_scale, "s");
+    ui_msm_print_value(globaldisplaytext, (((uint64)settings->periodtime * time_calc_data[scopesettings.samplerate].mul_factor) >> 20), time_calc_data[scopesettings.samplerate].time_scale, "s", 0);
   }
   else
   {
@@ -2816,7 +2857,7 @@ void ui_msm_display_time_plus(uint32 xpos, uint32 ypos, PCHANNELSETTINGS setting
   if(settings->frequencyvalid)
   {
     //Format the time for displaying
-    ui_msm_print_value(globaldisplaytext, (((uint64)settings->hightime * time_calc_data[scopesettings.samplerate].mul_factor) >> 20), time_calc_data[scopesettings.samplerate].time_scale, "s");
+    ui_msm_print_value(globaldisplaytext, (((uint64)settings->hightime * time_calc_data[scopesettings.samplerate].mul_factor) >> 20), time_calc_data[scopesettings.samplerate].time_scale, "s", 0);
   }
   else
   {
@@ -2832,7 +2873,7 @@ void ui_msm_display_time_min(uint32 xpos, uint32 ypos, PCHANNELSETTINGS settings
   if(settings->frequencyvalid)
   {
     //Format the time for displaying
-    ui_msm_print_value(globaldisplaytext, (((uint64)settings->lowtime * time_calc_data[scopesettings.samplerate].mul_factor) >> 20), time_calc_data[scopesettings.samplerate].time_scale, "s");
+    ui_msm_print_value(globaldisplaytext, (((uint64)settings->lowtime * time_calc_data[scopesettings.samplerate].mul_factor) >> 20), time_calc_data[scopesettings.samplerate].time_scale, "s", 0);
   }
   else
   {
@@ -2909,14 +2950,15 @@ void ui_msm_display_voltage(PCHANNELSETTINGS settings, int32 value)
   volts *= vcd->mul_factor;
 
   //Format the voltage for displaying
-  ui_msm_print_value(globaldisplaytext, volts, vcd->volt_scale, "V");
+  ui_msm_print_value(globaldisplaytext, volts, vcd->volt_scale, "V", 0);
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
 
-void ui_msm_print_value(char *buffer, int32 value, uint32 scale, char *designator)
+void ui_msm_print_value(char *buffer, int32 value, uint32 scale, char *designator, int32 resolution)
 {
   uint32 negative = 0;
+  uint32 d;
 
   //Check if negative value
   if(value < 0)
@@ -2935,26 +2977,39 @@ void ui_msm_print_value(char *buffer, int32 value, uint32 scale, char *designato
 
     //Bring the value in range
     value /= 1000;
+    resolution /= 1000;
   }
 
   //Format the remainder for displaying. Only 3 digits are allowed to be displayed
   if(value < 1000)
   {
     //Less then 1000 means x.yy
-    buffer = ui_msm_print_decimal(buffer, value, 2, negative);
+    d = 2;
   }
   else if(value < 10000)
   {
     //More then 1000 but less then 10000 means xx.y
     value /= 10;
-    buffer = ui_msm_print_decimal(buffer, value, 1, negative);
+    resolution /= 10;
+    d = 1;
   }
   else
   {
     //More then 10000 and less then 100000 means xxx
     value /= 100;
-    buffer = ui_msm_print_decimal(buffer, value, 0, negative);
+    resolution /= 100;
+    d = 0;
   }
+
+  //Cap decimals to the real resolution (resolution==0 = no cap; PORT_AUDIT F28)
+  while((d > 0) && (resolution > 1) && (value >= 10))
+  {
+    value /= 10;
+    resolution /= 10;
+    d--;
+  }
+
+  buffer = ui_msm_print_decimal(buffer, value, d, negative);
 
   //Make sure scale is not out of range
   if(scale > 7)
