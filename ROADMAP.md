@@ -125,3 +125,11 @@ Written 2026-07-09 after the port audit + fix pass (PORT_AUDIT.md). Ordered roug
     A/B first (his ~0 vs ours +7 ⇒ our cal; both +7 ⇒ inherent front-end).
 23. **Guard disabled-channel measurements (F29).** `ui_display_measurements` draws every slot
     unconditionally; blank/dash slots whose channel is disabled (fixes CH2 showing −22 V).
+
+## Port-seam sweep follow-ups (2026-07-16, PORT_AUDIT F31–F33)
+
+24. **Decide whether channel enable should push to the FPGA at runtime.** Neither pecostm32's
+    1014D nor Atlan4's 1013D touch flow sends `fpga_set_channel_enable` outside boot, so
+    `sm_toggle_channel_enable` was left matching the references (PORT_AUDIT F31 note). Bench
+    test: boot with a channel disabled in the saved config, enable it live — if its trace is
+    dead until reboot, add the push (one line, plus the same for disable).

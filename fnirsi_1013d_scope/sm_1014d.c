@@ -2479,7 +2479,19 @@ void sm_select_channel_option(void)
     case 1:
       //Select the other coupling state
       currentsettings->coupling ^= 1;
-      
+
+      //On a switch to AC coupling the DC offset trim no longer applies (Atlan4's touch flow
+      //zeroes it too)
+      if(currentsettings->coupling)
+      {
+        currentsettings->dcoffset = 0;
+      }
+
+      //Send the new state to the FPGA like the 1013D touch flow does; pecostm32's 1014D never
+      //pushed a coupling change, so it only took effect on the next power up (PORT_AUDIT F31)
+      fpga_set_channel_coupling(currentsettings);
+      fpga_set_channel_offset(currentsettings);
+
       //Show the new setting on the screen
       ui_display_channel_menu_coupling_select(currentsettings);
       ui_display_channel_coupling(currentsettings);

@@ -1659,7 +1659,9 @@ void ui_display_cycle(uint32 ypos, PCHANNELSETTINGS settings)
 
   if(settings->frequencyvalid)
   {
-    time = (((uint64)settings->periodtime * time_calc_data[scopesettings.samplerate].mul_factor) >> 20);
+    //periodtime/hightime/lowtime are Q16 in this tree (fpga_control.c shifts by 16, matching
+    //Atlan4's 1013D display path); pecostm32's originals were Q20, hence his >> 20 here
+    time = (((uint64)settings->periodtime * time_calc_data[scopesettings.samplerate].mul_factor) >> 16);
   }
 
   //Format the cycle time for displaying
@@ -1674,7 +1676,7 @@ void ui_display_time_plus(uint32 ypos, PCHANNELSETTINGS settings)
 
   if(settings->frequencyvalid)
   {
-    time = (((uint64)settings->hightime * time_calc_data[scopesettings.samplerate].mul_factor) >> 20);
+    time = (((uint64)settings->hightime * time_calc_data[scopesettings.samplerate].mul_factor) >> 16);
   }
 
   //Format the high part time for displaying
@@ -1689,7 +1691,7 @@ void ui_display_time_min(uint32 ypos, PCHANNELSETTINGS settings)
 
   if(settings->frequencyvalid)
   {
-    time = (((uint64)settings->lowtime * time_calc_data[scopesettings.samplerate].mul_factor) >> 20);
+    time = (((uint64)settings->lowtime * time_calc_data[scopesettings.samplerate].mul_factor) >> 16);
   }
 
   //Format the low part time for displaying
@@ -2840,8 +2842,8 @@ void ui_msm_display_cycle(uint32 xpos, uint32 ypos, PCHANNELSETTINGS settings)
   //Only when the frequency is valid calculate the time
   if(settings->frequencyvalid)
   {
-    //Format the time for displaying
-    ui_msm_print_value(globaldisplaytext, (((uint64)settings->periodtime * time_calc_data[scopesettings.samplerate].mul_factor) >> 20), time_calc_data[scopesettings.samplerate].time_scale, "s", 0);
+    //Format the time for displaying (periodtime is Q16 in this tree, not P14's Q20)
+    ui_msm_print_value(globaldisplaytext, (((uint64)settings->periodtime * time_calc_data[scopesettings.samplerate].mul_factor) >> 16), time_calc_data[scopesettings.samplerate].time_scale, "s", 0);
   }
   else
   {
@@ -2857,7 +2859,7 @@ void ui_msm_display_time_plus(uint32 xpos, uint32 ypos, PCHANNELSETTINGS setting
   if(settings->frequencyvalid)
   {
     //Format the time for displaying
-    ui_msm_print_value(globaldisplaytext, (((uint64)settings->hightime * time_calc_data[scopesettings.samplerate].mul_factor) >> 20), time_calc_data[scopesettings.samplerate].time_scale, "s", 0);
+    ui_msm_print_value(globaldisplaytext, (((uint64)settings->hightime * time_calc_data[scopesettings.samplerate].mul_factor) >> 16), time_calc_data[scopesettings.samplerate].time_scale, "s", 0);
   }
   else
   {
@@ -2873,7 +2875,7 @@ void ui_msm_display_time_min(uint32 xpos, uint32 ypos, PCHANNELSETTINGS settings
   if(settings->frequencyvalid)
   {
     //Format the time for displaying
-    ui_msm_print_value(globaldisplaytext, (((uint64)settings->lowtime * time_calc_data[scopesettings.samplerate].mul_factor) >> 20), time_calc_data[scopesettings.samplerate].time_scale, "s", 0);
+    ui_msm_print_value(globaldisplaytext, (((uint64)settings->lowtime * time_calc_data[scopesettings.samplerate].mul_factor) >> 16), time_calc_data[scopesettings.samplerate].time_scale, "s", 0);
   }
   else
   {

@@ -989,7 +989,16 @@ settings->lowtime =
     
     //Calculate the average low time of the signal expressed in samples
     settings->lowtime = (((uint64)settings->lowsamplecount << 16) / settings->lowdivider) * 2;
-    
+
+    //With the Si5351 override the ADCs run above the nominal rate and the sample-domain times
+    //shrink accordingly; rescale so the nominal-rate conversions stay true (the frequency below
+    //and the time readouts downstream; duty is a ratio and unaffected) -- PORT_AUDIT F33
+    if(sampling_clock_scale != 1.0)
+    {
+      settings->hightime = (uint32)((double)settings->hightime / sampling_clock_scale + 0.5);
+      settings->lowtime  = (uint32)((double)settings->lowtime  / sampling_clock_scale + 0.5);
+    }
+
     //Calculate the period time expressed in samples
     settings->periodtime = settings->hightime + settings->lowtime;
  
