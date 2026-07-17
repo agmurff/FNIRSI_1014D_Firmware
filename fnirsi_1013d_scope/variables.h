@@ -212,6 +212,10 @@
 #define MEASUREMENT_DESIGNATOR_X         768
 #define MEASUREMENT_ZERO_X               735
 #define MEASUREMENT_VALUE_X              719
+//Gap between a measurement value's right edge and its unit text, identical for signed,
+//unsigned and zero readings (PORT_AUDIT F34). Sized so the widest case (signed x.y value,
+//"mV" designator ending at x=781+~17) still clears the 800 px screen edge.
+#define MEASUREMENT_DESIGNATOR_GAP         5
 #define MEASUREMENT_INFO_Y                21
 #define MEASUREMENT_Y_DISPLACEMENT        80
 

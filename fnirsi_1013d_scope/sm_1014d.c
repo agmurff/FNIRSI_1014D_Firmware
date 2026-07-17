@@ -2600,6 +2600,8 @@ void sm_open_on_off_setting(void)
 //Factory settings menu (restore defaults, reboot, FEL firmware update)
 //----------------------------------------------------------------------------------------------------------------------------------
 
+static void sm_do_acquisition_probe(void);
+
 void sm_open_factory_menu(void)
 {
   //Switch to the factory menu navigation state
@@ -2636,9 +2638,9 @@ void sm_handle_factory_menu_actions(void)
       //Limit it on the range for this menu
       if(newitem < 0)
       {
-        newitem = 3;
+        newitem = 4;
       }
-      else if(newitem > 3)
+      else if(newitem > 4)
       {
         newitem = 0;
       }
@@ -2668,9 +2670,28 @@ void sm_handle_factory_menu_actions(void)
         case 3:
           sm_open_clock_menu();
           break;
+
+        case 4:
+          sm_do_acquisition_probe();
+          break;
       }
       break;
   }
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//Acquisition probe (ROADMAP 27): rate measurement + FPGA ring dump to SD. Blocking action
+//that draws its own status and waits for a key, like the clock auto search.
+
+static void sm_do_acquisition_probe(void)
+{
+  //The probe draws its own status; make sure it lands on the visible screen
+  display_set_screen_buffer((uint16 *)maindisplaybuffer);
+
+  scope_do_acquisition_probe();
+
+  //Close the whole menu stack; the trace area repaints itself next frame
+  sm_close_menu();
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------

@@ -72,7 +72,10 @@ Atlan4 additions:
 The generator commands are reachable only from the 1013D touch UI paths
 (`statemachine.c` ~3600, `generator.c`); the 1014D build never sends them today
 (`scope_generator_settings()` is skipped on 1014D — it hung on a fresh flash, root cause
-still not pinned).
+still not pinned). Bench A/B 2026-07-17: the 1014D AWG works **only under stock firmware**
+— pecostm32's 1014D has no generator code either (GEN = empty case), so `0x50–0x52` are
+Atlan4-replacement-FPGA commands and the stock AWG protocol remains un-REd; the boot hang
+is consistent with an unknown command wedging the stock FPGA's parser (ROADMAP 14).
 
 ## Long vs short time base (how it actually works)
 
@@ -84,6 +87,63 @@ Atlan4's 35-entry `timeperdiv` space: indices 0–10 = "long" (50 s/div … 20 m
 - **Long**: `fpga_set_long_timebase()` is mostly gutted — all it really does is **disable the
   trigger system** (`0x0F` data `0x01`); the rate still goes via `0x0D`, and acquisition
   switches to the roll-mode path `scope_get_long_timebase_data()` in the main loop.
+
+## Stock-FPGA capture geometry (inferred from code + RE, 2026-07-17)
+
+Derived while revisiting the EEVBlog multi-sampling idea; read out of
+`scope_acquire_trace_data()` / `fpga_read_sample_data()` plus pecostm32's bus captures.
+Code-inferred, not netlist-verified — the open items below are one bench probe away.
+
+- **Trigger is a digital comparator** on the ADC sample stream (level = one 8-bit ADC code
+  via `0x17`, edge `0x16`, source `0x15`). Trigger time is therefore quantized to the
+  sample clock; against any signal not phase-locked to the Si5351 the sub-sample phase is
+  uniformly random per capture. A constant ADC pipeline delay is common to all captures.
+- **Ring buffer ≈ 4096 samples per ADC** (12-bit trigger address from `0x14`; the fw1
+  read-pointer math `data<750 ? +3345 : −750` is a wrap at 4095+1). Four rings total
+  (2 ch × 2 ADC) plus pecostm32's reported AWG block.
+- **Readout uses only ~37 % of the ring**: read pointer = trigger − 750 (per ADC) via
+  `0x1F`, then 1500 samples per ADC × 2 ADCs → 3000 interleaved per channel centered on
+  the trigger. The other ~2600 samples per ADC stay unread. `0x1F` accepts an arbitrary
+  pointer and the same capture can be re-read repeatedly (the code already rewinds it
+  between the ADC1 and ADC2 reads), so **full-ring dumps and offset windows need no FPGA
+  change**.
+- **Open question — post-trigger fill depth**: the flag read by `0x0A` is
+  "triggered/buffer full", and the fixed −750 read start proves ≥750 per-ADC post-trigger
+  samples get filled, but whether capture stops there (⇒ unread headroom is *pre*-trigger
+  history, useful for "what led up to it") or keeps filling the ring (⇒ headroom is
+  *post*-trigger, useful for delayed-window/serial-reply work) is unknown. `0x0E`'s large
+  values (e.g. 411100 at 10 ns/div) look like the auto-mode trigger timeout, not a fill
+  count (matches the Slovak comment in `fpga_set_time_base`). **Probe:** capture a
+  single identifiable pulse, dump the full ring with stepped `0x1F` reads, see where the
+  pulse sits and where data goes stale; pecostm32's decompiled netlist is the paper
+  fallback.
+- **Software trigger re-find already exists**: `scope_process_trigger()` re-locates the
+  exact crossing near buffer center (stepping by 2 to stay on one ADC's parity, dodging
+  the interleave offset) and the display anchors on `disp_trigger_index` — i.e.
+  whole-sample multi-capture alignment is effectively already written; only accumulation
+  and (for RIS) fractional refinement are missing. See ROADMAP §acquisition/multi-sampling.
+- **Readout cost estimate** (unmeasured): the Port E bit-bang loop is ~3 MMIO accesses +
+  ~20 instructions per sample → order 0.5–1 ms per 3000-sample channel, suggesting
+  100–500 captures/s in a dedicated burst mode (today's main loop is additionally gated
+  by the blocking UART key poll). Measure with the timer before designing on top of it.
+- **Measurement probe exists (2026-07-17, bench run pending):** Factory settings →
+  *Acquisition probe* (`scope_do_acquisition_probe()`, raw reads via `fpga_dump_ring()`)
+  measures the arm→flag rate, the full-readout rate, and dumps 5×4608 samples (ADC
+  commands 0x20/0x21/0x22/0x23 + 0x20 again for determinism) starting at the raw 0x14
+  address, to SD root as `acqprobe.txt` + `ringdump.bin` (4-char magic "ACQP", six LE
+  uint32s: version, timeperdiv, samplerate idx, raw 0x14, blocks, samples/block, then the
+  five command bytes, then the sample blocks). Where the dump goes stale relative to the
+  trigger address answers the post-trigger-fill question above; equal first/last 512 of a
+  block ⇒ 4096 wrap; block 0 vs block 4 differences ⇒ bus/readout nondeterminism.
+- **Independent corroboration** (`donwulff-notes.md`, 2022-era): "2500 displayed of 3000
+  available with room for 4096" and a ~24 KB total sample-memory figure — matches the
+  12-bit-ring inference (4×4096 = 16 KB + AWG block ≈ 20+ KB).
+- **Sensitivity floor is software zoom**: `fpga_set_channel_voltperdiv()` clamps the FPGA
+  scale to 5, so volt/div index 6 (50 mV/div at 1×; "500 mV/div" in stock 10× labeling —
+  same fact in pecostm32's 0x33 table) reuses the 100 mV/div hardware range and the last
+  ×2 is software (≈7-bit effective). Consequence: at 50 mV/div everything — noise AND the
+  interleave residual — renders ×2 vs its hardware size; also why cal's per-v/div loop
+  stops at index 5 (there is no sixth hardware range to measure).
 
 ## SOLVED: sawtooth at ≤200 ns/div — missing FPGA `0x28` mode-select (bench, 2026-07-12)
 
@@ -205,6 +265,26 @@ pecostm32 already reverse-engineered the **stock 1014D FPGA** in his
 - `FPGA explained/` — pecostm32's protocol notes + logic-analyzer read-sequence captures of
   the stock MCU↔FPGA bus at every timebase (independent evidence for acquisition-path work,
   e.g. the sawtooth investigation).
+
+**Unit-specific flash/bitstream findings** (from `donwulff-notes.md`, bench work 2022–23,
+recorded here 2026-07-17):
+
+- **This unit's FPGA SPI flash is a ZB25VQ80ATIG**, not the W25Q80 the schematic shows —
+  most flashers don't know the chip ID. **J-Link failed** (Winbond-only SPI support);
+  **Bus Pirate + recent `flashrom` in generic mode worked** with 3V3 left unconnected and
+  the board powered on — a bench-proven read route on this exact unit, alongside the
+  CH341A-on-J2 option. J5 is the FPGA's JTAG TAP (dedicated silicon — the *stock netlist*
+  exposes no user-logic ISP path, and the MCU has no JTAG/SPI route to the FPGA, consistent
+  with "the scope CPU cannot reflash the FPGA").
+- **The stock 1014D bitstream was already parsed** (prjtang `bitstream_format.rst`): device
+  id packet `f0 00 0006 18006c31` = **al3_10** (same die confirmed from the flash side);
+  `VERSION_UCODE` differs from the 1013D sample (`00e40000` vs `001c0000`); real fabric
+  differences start after the `ec f0 0433` marker (0x433 = 1075 frames in the AL3 family).
+  Useful sanity anchors when we bitgen our own.
+- The user notes read the MS5351M outputs as CLK0 = 200 MHz for the AWG/siggen side and
+  CLK1 = 50 MHz for the scope logic (both reach FPGA clock pins P23/P24 per the pinout
+  above; the stock netlist's PLL takes `i_xtal`→200 MHz, so the 50 MHz input is the one
+  the acquisition side multiplies).
 
 **Pinout diff, stock 1014D vs Atlan4's AL3 project** (`Original_1014D_fpga_generated.adc`
 vs `zaklad.adc` — both target the *same die*, `AL3A10LG144C7`, despite the "AL3S10" folder
@@ -407,9 +487,16 @@ pixel-diffing settled several open questions:
   x≤729 trace copy rect, so the sidebar part is never repainted) — cosmetic; the region
   under the trace rect self-heals next frame.
 
-## Synthesis environment (Anlogic TD) — setup notes, downloaded 2026-07-10, not yet installed
+## Synthesis environment (Anlogic TD) — setup notes, downloaded 2026-07-10
 
 Goal: headless synth→P&R→bitgen on this Linux server; hands-on only for flashing.
+
+**Status 2026-07-17: TD 5.0.4 build 27252 is installed on the user's Windows laptop**
+(the `TD_5.0.4_27252_Win7_64bit_NL.msi` download; installer is Chinese — buttons by
+position — but the installed IDE is English and shows AL3-family device data in the
+interface). License-file validity **not yet verified** (`Anlogic_20251116.lic` is the
+newest on hand). The Linux 5.0.3 headless install on this server is still pending.
+English translations of Anlogic docs: github.com/kprasadvnsi/Anlogic_Doc_English.
 
 - **What Atlan4 used:** `FPGA.al` says `TD_Version 4.6.116866` = **TD 4.6.8 SP1 build
   116866** (matches the EF2 readme's `TD_4.6.8_SP1_116866_NL.msi`), project created

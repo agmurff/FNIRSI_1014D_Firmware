@@ -1399,6 +1399,33 @@ void fpga_read_adc_data(PCHANNELSETTINGS settings)
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
+//Raw ring readout for the acquisition probe (FPGA_NOTES.md §capture geometry): set the FPGA
+//read pointer with 0x1F and clock out 'count' bytes from one ADC read command, without any
+//compensation, clipping or statistics. Reading past the ~4096 sample ring shows the wrap.
+//Bus protocol mirrors fpga_read_adc_data; the next fpga_write_cmd restores the bus direction.
+
+void fpga_dump_ring(uint8 command, uint16 readpointer, uint8 *buffer, uint32 count)
+{
+  //Set the read start address in the FPGA
+  fpga_write_cmd(0x1F);
+  fpga_write_short(readpointer);
+
+  //Request the ADC sample data
+  fpga_write_cmd(command);
+
+  //Set the bus for reading data
+  FPGA_BUS_DIR_IN();
+  FPGA_DATA_READ();
+
+  while(count--)
+  {
+    //Clock the next sample to the output of the FPGA and store it as is
+    FPGA_PULSE_CLK();
+    *buffer++ = FPGA_GET_DATA();
+  }
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
 
 uint16 fpga_average_trace_data(PCHANNELSETTINGS settings)
 {

@@ -1850,6 +1850,272 @@ static void show_clock_test_status(uint8 p1b, uint32 score, uint32 peak, uint8 b
 
   display_text(385, y, buf);
 }
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//Acquisition probe (ROADMAP 27 / FPGA_NOTES.md §capture geometry). Measures the real
+//capture and readout rates and dumps the full FPGA sample ring to SD for offline analysis:
+// - phase A: arm -> triggered/full flag, conversion cycle only
+// - phase B: full acquisition cycle including the trigger pointer and channel readout
+// - phase C: one capture, then all four ADC rings read from the raw trigger address; a
+//   fifth block re-reads the first one at the same pointer as a bus determinism check.
+//Reading ACQPROBE_RING_SAMPLES (>4096) per block shows where/whether the ring wraps, and
+//where data goes stale relative to the trigger — the open post-trigger-fill question.
+//Results: acqprobe.txt (summary) + ringdump.bin (raw) in the SD root, plus on-screen rates.
+
+#define ACQPROBE_RATE_LOOPS       64
+#define ACQPROBE_PHASE_LIMIT_MS 4000
+#define ACQPROBE_RING_SAMPLES   4608
+
+//Sample memory only lives in BSS, not in the flash image
+static uint8 acqprobe_ring[5][ACQPROBE_RING_SAMPLES];
+static const uint8 acqprobe_adc_commands[5] = { 0x20, 0x21, 0x22, 0x23, 0x20 };
+
+static FIL    acqprobe_file;
+static uint32 acqprobe_file_ok;
+
+//Bounded wait on the triggered/buffer-full flag; auto trigger mode makes this finite
+static void acqprobe_wait_done(void)
+{
+  uint32 guard = 10000000;
+
+  while((fpga_done_conversion() == 0) && (--guard));
+}
+
+static void acqprobe_write(const void *data, uint32 count)
+{
+  UINT bw;
+
+  if(acqprobe_file_ok && (f_write(&acqprobe_file, data, count, &bw) != FR_OK))
+  {
+    acqprobe_file_ok = 0;
+  }
+}
+
+//"label=value\r\n" without libc; label is trusted to keep the line under 64 characters
+static void acqprobe_line(const char *label, uint32 value)
+{
+  char   buf[64];
+  char   tmp[10];
+  uint32 n = 0;
+  uint32 t = 0;
+
+  while(*label)
+  {
+    buf[n++] = *label++;
+  }
+
+  do
+  {
+    tmp[t++] = '0' + (value % 10);
+    value /= 10;
+  } while(value);
+
+  while(t)
+  {
+    buf[n++] = tmp[--t];
+  }
+
+  buf[n++] = '\r';
+  buf[n++] = '\n';
+
+  acqprobe_write(buf, n);
+}
+
+//On-screen "label value" status line in the summary block
+static void acqprobe_show(uint32 ypos, const char *label, uint32 value)
+{
+  display_set_fg_color(WHITE_COLOR);
+  display_set_font(&font_0);
+  display_text(170, ypos, (char *)label);
+  display_decimal(430, ypos, value);
+}
+
+void scope_do_acquisition_probe(void)
+{
+  uint32 backup_triggermode = scopesettings.triggermode;
+  uint32 backup_samplemode  = scopesettings.samplemode;
+  uint32 aloops = 0, bloops = 0;
+  uint32 aticks, bticks, dticks;
+  uint32 rawfirst[8];
+  uint32 nraw = 0;
+  uint32 rawdump;
+  uint32 data;
+  uint32 i;
+  uint32 ypos;
+
+  //The probe needs the triggered short-timebase path; roll mode runs trigger-disabled
+  if(scopesettings.long_mode)
+  {
+    display_set_fg_color(BLACK_COLOR);
+    display_fill_rect(160, 200, 480, 40);
+    display_set_fg_color(WHITE_COLOR);
+    display_set_font(&font_0);
+    display_text(170, 212, "Acq probe needs 10ms/div or faster");
+    uart1_wait_for_user_input();
+    return;
+  }
+
+  //Status area
+  display_set_fg_color(BLACK_COLOR);
+  display_fill_rect(160, 130, 480, 290);
+  display_set_fg_color(WHITE_COLOR);
+  display_set_font(&font_0);
+  display_text(170, 140, "Acquisition probe running...");
+
+  //Force auto trigger mode so every capture completes with or without a signal
+  scopesettings.triggermode = 0;
+  fpga_set_trigger_mode();
+  scopesettings.samplemode = 1;
+
+  //Phase A: conversion cycle only
+  aticks = timer0_get_ticks();
+  while((aloops < ACQPROBE_RATE_LOOPS) && ((timer0_get_ticks() - aticks) < ACQPROBE_PHASE_LIMIT_MS))
+  {
+    fpga_do_conversion();
+    acqprobe_wait_done();
+    aloops++;
+  }
+  aticks = timer0_get_ticks() - aticks;
+
+  //Phase B: full cycle with trigger pointer readback and channel data readout
+  bticks = timer0_get_ticks();
+  while((bloops < ACQPROBE_RATE_LOOPS) && ((timer0_get_ticks() - bticks) < ACQPROBE_PHASE_LIMIT_MS))
+  {
+    fpga_do_conversion();
+    acqprobe_wait_done();
+
+    data = fpga_prepare_for_transfer();
+
+    //Keep the first few raw trigger addresses for the ring-position statistics
+    if(nraw < 8)
+    {
+      rawfirst[nraw++] = data;
+    }
+
+    //Same fw1 read-pointer translation as scope_acquire_trace_data
+    if(fpgasettings.fw_FPGA == 1)
+    {
+      if(data < 750)
+      {
+        data = data + 3345;
+      }
+      else
+      {
+        data = data - 750;
+      }
+    }
+
+    fpga_read_sample_data(&scopesettings.channel1, data);
+
+    if(scopesettings.channel2.enable)
+    {
+      fpga_read_sample_data(&scopesettings.channel2, data);
+    }
+
+    bloops++;
+  }
+  bticks = timer0_get_ticks() - bticks;
+
+  //Phase C: one more capture, then dump all four ADC rings from the raw trigger address
+  fpga_do_conversion();
+  acqprobe_wait_done();
+  rawdump = fpga_prepare_for_transfer();
+
+  dticks = timer0_get_ticks();
+  for(i=0;i<5;i++)
+  {
+    fpga_dump_ring(acqprobe_adc_commands[i], rawdump, acqprobe_ring[i], ACQPROBE_RING_SAMPLES);
+  }
+  dticks = timer0_get_ticks() - dticks;
+
+  //Restore the user's trigger configuration and let the main loop re-arm normally
+  scopesettings.triggermode = backup_triggermode;
+  fpga_set_trigger_mode();
+  scopesettings.samplemode = backup_samplemode;
+  scopesettings.display_data_done = 1;
+
+  //Human readable summary on the SD card
+  acqprobe_file_ok = (f_open(&acqprobe_file, "acqprobe.txt", FA_CREATE_ALWAYS | FA_WRITE) == FR_OK);
+
+  if(acqprobe_file_ok)
+  {
+    acqprobe_line("FNIRSI-1014D acqprobe version=", 1);
+    acqprobe_line("timeperdiv=", scopesettings.timeperdiv);
+    acqprobe_line("samplerate_idx=", scopesettings.samplerate);
+    acqprobe_line("samplecount=", scopesettings.samplecount);
+    acqprobe_line("nofsamples=", scopesettings.nofsamples);
+    acqprobe_line("fw_fpga=", fpgasettings.fw_FPGA);
+    acqprobe_line("clock_p1b=", sampling_clock_p1b);
+    acqprobe_line("ch1_enable=", scopesettings.channel1.enable);
+    acqprobe_line("ch2_enable=", scopesettings.channel2.enable);
+    acqprobe_line("saved_triggermode=", backup_triggermode);
+    acqprobe_line("phase_a_loops=", aloops);
+    acqprobe_line("phase_a_ms=", aticks);
+    acqprobe_line("phase_b_loops=", bloops);
+    acqprobe_line("phase_b_ms=", bticks);
+    acqprobe_line("dump_ms=", dticks);
+    acqprobe_line("dump_bytes=", 5 * ACQPROBE_RING_SAMPLES);
+
+    for(i=0;i<nraw;i++)
+    {
+      acqprobe_line("raw14=", rawfirst[i]);
+    }
+
+    acqprobe_line("ringdump_raw14=", rawdump);
+    f_close(&acqprobe_file);
+  }
+
+  //Raw ring dump: 4-char magic, six little-endian uint32 header fields, five command
+  //bytes, then blocks * samplesperblock sample bytes
+  {
+    uint32 saved_txt_ok = acqprobe_file_ok;
+    uint32 header[6];
+
+    acqprobe_file_ok = (f_open(&acqprobe_file, "ringdump.bin", FA_CREATE_ALWAYS | FA_WRITE) == FR_OK);
+
+    if(acqprobe_file_ok)
+    {
+      header[0] = 1;                          //format version
+      header[1] = scopesettings.timeperdiv;
+      header[2] = scopesettings.samplerate;
+      header[3] = rawdump;                    //raw 0x14 trigger address the reads started at
+      header[4] = 5;                          //blocks
+      header[5] = ACQPROBE_RING_SAMPLES;      //samples per block
+
+      acqprobe_write("ACQP", 4);
+      acqprobe_write(header, sizeof(header));
+      acqprobe_write(acqprobe_adc_commands, sizeof(acqprobe_adc_commands));
+      acqprobe_write(acqprobe_ring, sizeof(acqprobe_ring));
+      f_close(&acqprobe_file);
+    }
+
+    acqprobe_file_ok &= saved_txt_ok;
+  }
+
+  //Summary on screen; ms per 64-loop phase, so captures/s = loops * 1000 / ms
+  ypos = 160;
+  acqprobe_show(ypos += 20, "A conv-only loops", aloops);
+  acqprobe_show(ypos += 20, "A ms", aticks);
+  acqprobe_show(ypos += 20, "B full-read loops", bloops);
+  acqprobe_show(ypos += 20, "B ms", bticks);
+  acqprobe_show(ypos += 20, "ring dump ms (23040 B)", dticks);
+  acqprobe_show(ypos += 20, "raw trigger addr", rawdump);
+
+  display_set_fg_color(WHITE_COLOR);
+  display_set_font(&font_0);
+
+  if(acqprobe_file_ok)
+  {
+    display_text(170, ypos += 25, "Saved acqprobe.txt + ringdump.bin");
+  }
+  else
+  {
+    display_text(170, ypos += 25, "SD WRITE FAILED (rates above still valid)");
+  }
+
+  display_text(170, ypos += 20, "Press any key");
+  uart1_wait_for_user_input();
+}
 #endif  // PORT_1014D
 
 //----------------------------------------------------------------------------------------------------------------------------------

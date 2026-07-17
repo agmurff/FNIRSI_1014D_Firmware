@@ -36,6 +36,10 @@ void scope_acquire_trace_data(void);
 void scope_process_trigger(uint32 count);   
 
 uint32 scope_do_baseline_calibration(void);
+
+#if PORT_1014D
+void scope_do_acquisition_probe(void);
+#endif
 uint32 scope_do_channel_calibration(void);
 void scope_input_calibration(void);
 

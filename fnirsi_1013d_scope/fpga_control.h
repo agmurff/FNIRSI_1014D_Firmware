@@ -89,6 +89,7 @@ uint16 fpga_prepare_for_transfer(void);
 
 void   fpga_read_sample_data(PCHANNELSETTINGS settings, uint32 triggerpoint);
 void   fpga_read_adc_data(PCHANNELSETTINGS settings);
+void   fpga_dump_ring(uint8 command, uint16 readpointer, uint8 *buffer, uint32 count);
 
 uint16 fpga_average_trace_data(PCHANNELSETTINGS settings);  //For long time base
 uint16 fpga_average_trace_data_long(PCHANNELSETTINGS settings);

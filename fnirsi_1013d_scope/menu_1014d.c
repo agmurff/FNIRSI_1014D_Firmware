@@ -1503,9 +1503,20 @@ void ui_display_measurements(void)
     //Set the y position for the measurement
     y += 21;
 
-    //Call the set function for displaying the actual value and
-    //pass the information for this measurement to the function for displaying it
-    measurement_functions[scopesettings.measurementitems[i].index](y, settings);
+    //Don't render live values for a disabled channel: with the channel off the FPGA data is
+    //stale/floating and reads as a ghost voltage (PORT_AUDIT F29, CH2 showing -22 V). Dash it.
+    if(settings->enable == 0)
+    {
+      display_set_fg_color(COLOR_GREY);
+      display_set_font(&font_2);
+      display_text(MEASUREMENT_VALUE_X + 26, y + 2, "- - -");
+    }
+    else
+    {
+      //Call the set function for displaying the actual value and
+      //pass the information for this measurement to the function for displaying it
+      measurement_functions[scopesettings.measurementitems[i].index](y, settings);
+    }
   }
 }
 
@@ -1536,9 +1547,20 @@ void ui_update_measurements(void)
     display_set_fg_color(COLOR_BLACK);
     display_fill_rect(MEASUREMENT_VALUE_X - 2, y - 2, 83, 20);
 
-    //Call the set function for displaying the actual value and
-    //pass the information for this measurement to the function for displaying it
-    measurement_functions[scopesettings.measurementitems[i].index](y, settings);
+    //Same disabled-channel guard as ui_display_measurements (PORT_AUDIT F29); drawn every
+    //frame so a live channel toggle updates the slot without needing a full redraw
+    if(settings->enable == 0)
+    {
+      display_set_fg_color(COLOR_GREY);
+      display_set_font(&font_2);
+      display_text(MEASUREMENT_VALUE_X + 26, y + 2, "- - -");
+    }
+    else
+    {
+      //Call the set function for displaying the actual value and
+      //pass the information for this measurement to the function for displaying it
+      measurement_functions[scopesettings.measurementitems[i].index](y, settings);
+    }
 
     //Copy this item to the main screen
     display_set_screen_buffer((uint16 *)maindisplaybuffer);
@@ -1719,6 +1741,7 @@ void ui_display_duty_min(uint32 ypos, PCHANNELSETTINGS settings)
 void ui_display_duty_cycle(uint32 ypos, PCHANNELSETTINGS settings, uint32 value)
 {
   uint32 percentage = 0;
+  uint32 x;
 
   if(settings->frequencyvalid)
   {
@@ -1727,21 +1750,22 @@ void ui_display_duty_cycle(uint32 ypos, PCHANNELSETTINGS settings, uint32 value)
 
   if(percentage == 0)
   {
-    //Value is zero so just set 0 character
-    display_copy_icon_full_color(measurement_digit_icons[0], MEASUREMENT_ZERO_X, ypos, 13, 16);
+    //Draw the zero right aligned where a non-zero reading ends, same as ui_print_value
+    display_copy_icon_full_color(measurement_digit_icons[0], MEASUREMENT_VALUE_X + 26, ypos, 13, 16);
+    x = MEASUREMENT_VALUE_X + 39;
   }
   else
   {
     //Format the duty cycle for displaying
-    ui_print_decimal(MEASUREMENT_VALUE_X, ypos, percentage, 0);
+    x = ui_print_decimal(MEASUREMENT_VALUE_X, ypos, percentage, 0);
   }
 
   //The designator text is drawn in white and small font
   display_set_fg_color(COLOR_WHITE);
   display_set_font(&font_1);
 
-  //Display the designator on the screen
-  display_text(MEASUREMENT_DESIGNATOR_X + 5, ypos + 5, "%");
+  //Display the designator on the screen with the same value-to-unit gap as ui_print_value
+  display_text(x + MEASUREMENT_DESIGNATOR_GAP, ypos + 5, "%");
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -1810,11 +1834,13 @@ void ui_print_value(uint32 ypos, int32 value, uint32 scale, char *designator, ui
   //Check on zero value to avoid unneeded processing
   if(value == 0)
   {
-    //Value is zero so just set 0 character
-    display_copy_icon_full_color(measurement_digit_icons[0], MEASUREMENT_ZERO_X, ypos, 13, 16);
+    //Draw the zero right aligned where a plain three digit number ends, so the designator
+    //lands at the same distance from the value as for non-zero readings (it sat at a fixed
+    //MEASUREMENT_DESIGNATOR_X before, giving "0  kHz" while other slots read "14 mV")
+    display_copy_icon_full_color(measurement_digit_icons[0], x + 26, ypos, 13, 16);
 
-    //Set the x position for printing the designator on the screen
-    x = MEASUREMENT_DESIGNATOR_X;
+    //Right edge of the drawn value, matching what ui_print_decimal returns for d == 0
+    x += 39;
   }
   else
   {
@@ -1865,23 +1891,15 @@ void ui_print_value(uint32 ypos, int32 value, uint32 scale, char *designator, ui
     x = ui_print_decimal(x, ypos, value, d);
   }
 
-  //The non signed values have the designator a bit further to the right than the last digit
-  if(signedvalue == 0)
-  {
-    //Set the x position for printing the designator on the screen
-    x += 11;
-  }
+  //One fixed gap between the value and its designator for every path. Signed, unsigned and
+  //zero readings each had their own spacing (none / 11 px / fixed position with a magnifier
+  //correction), showing "14 mV", "+ 7.6mV" and "0  kHz" on one screen (PORT_AUDIT F34)
+  x += MEASUREMENT_DESIGNATOR_GAP;
 
   //Make sure scale is not out of range
   if(scale > 7)
   {
     scale = 7;
-  }
-
-  //When there is a magnifier and the value is zero non signed, the text needs to shift to the left
-  if((scale != 4) && (value == 0) && (signedvalue == 0))
-  {
-    x -= 9;
   }
 
   //Setup the designator by first adding the magnitude scaler
@@ -5186,12 +5204,13 @@ HIGHLIGHTRECTDATA factory_menu_highlight_box =
   COLOR_BLACK
 };
 
-const char *factory_menu_texts[4] =
+const char *factory_menu_texts[5] =
 {
   "Restore defaults",
   "Reboot",
   "FEL firmware update",
-  "Sampling clock"
+  "Sampling clock",
+  "Acquisition probe"
 };
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -5258,7 +5277,7 @@ void ui_display_factory_menu(uint16 xpos, uint16 ypos)
   display_set_font(&font_1);
 
   //Draw the label per line
-  for(i=0;i<4;i++)
+  for(i=0;i<5;i++)
   {
     display_text(xpos + 12, ypos + 11 + (i * 31), factory_menu_texts[i]);
   }

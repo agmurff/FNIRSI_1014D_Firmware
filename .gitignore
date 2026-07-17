@@ -14,5 +14,9 @@
 # Saved copy of the EEVBlog forum thread on this port, kept locally for reference
 /fnirsi_1013d_scope/EEVBlog_FNIRSI_1014D_port.html
 
+# Text copy of the user's own hardware/theory notes (images not vendored) —
+# source: https://github.com/Donwulff/FNIRSI-1013D-1014D-Hack/blob/main/notes.md
+/donwulff-notes.md
+
 # opencode agent workspace
 /.opencode/

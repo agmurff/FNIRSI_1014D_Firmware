@@ -69,9 +69,11 @@
 
 //Four items of 31 each plus the 8 border pixels; moved up so the taller menu stays on screen
 #define FACTORY_MENU_XPOS               191
-#define FACTORY_MENU_YPOS               340
+//Five items now (Acquisition probe added); moved up one 31 px row so the taller box keeps
+//the same bottom edge (472) inside the 480 px screen
+#define FACTORY_MENU_YPOS               309
 #define FACTORY_MENU_WIDTH              170
-#define FACTORY_MENU_HEIGHT             132
+#define FACTORY_MENU_HEIGHT             163
 
 //Sampling clock menu, opens next to the factory menu (seven items of 31 each plus border;
 //moved up so the taller menu stays on screen)

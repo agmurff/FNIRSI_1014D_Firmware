@@ -47,7 +47,10 @@ Written 2026-07-09 after the port audit + fix pass (PORT_AUDIT.md). Ordered roug
    workspace.
 9. **CI** — a GitHub Action that builds both variants (arm-none-eabi-gcc is apt-installable),
    fails on new warnings, and publishes the packed images as artifacts. The repo has zero
-   automated checks today; this is the cheapest one that matters.
+   automated checks today; this is the cheapest one that matters. Related dev-infra lead
+   (donwulff-notes.md): froloffw7's fork adds **SD-card emulation for QEMU** — running the
+   ARM firmware on a desktop would give a smoke-test tier above "build succeeded" (FPGA/UART
+   would need stubbing; unexplored).
 
 ## Features (1014D as an instrument)
 
@@ -61,9 +64,19 @@ Written 2026-07-09 after the port audit + fix pass (PORT_AUDIT.md). Ordered roug
     then polish (it's trigger-off streaming; the UI should say so).
 13. **PC interface on the 1014D** — USB CDC (`cdc_class.c`/`PC_interface.c`) is compiled but
     only reachable from touch UI; wire a key/menu item to toggle MSC↔CDC (`USB_CH340`).
+    Long-standing target shape (donwulff-notes.md): a **sigrok-compatible** data-logger /
+    streaming protocol, so PC-side decoding and logging come for free.
 14. **Signal generator decision** — Atlan4's `0x50/0x51/0x52` FPGA commands have unverified
     stock-FPGA support and the 1014D panel entry hung on fresh flash (still unexplained);
     either verify on stock FPGA and wire to a key, or fence it to fw_FPGA ≥ 2.
+    *Datapoints 2026-07-17 (bench A/B):* the 1014D AWG works under **stock firmware only** —
+    pecostm32's official 1014D has **no generator code at all** (GEN is an empty case), so
+    this was never a regression of ours. Getting it working = stock-firmware RE: Ghidra the
+    stock 1014D binary's generator UI for the FPGA commands it sends, or logic-analyzer
+    capture of the Port E bus while driving the generator under stock (loader F2 boots
+    stock). Atlan4's 0x50–0x52 are replacement-FPGA-only; the old "hung on fresh flash" is
+    consistent with an unknown command wedging the stock FPGA's command parser (the
+    then-unbounded 0x05 ready-wait would spin forever) — keep them fenced off stock.
 15. **Si5351 as a feature** — the clock generator is programmable at runtime; alternate ADC
     clocks (66/75/80 MHz were sketched in the old port; user ran 75 MHz → "300 MSa/s"
     apparently-working in 2023, unvalidated — FPGA_NOTES.md §frequency) or a cal-frequency
@@ -125,6 +138,8 @@ Written 2026-07-09 after the port audit + fix pass (PORT_AUDIT.md). Ordered roug
     A/B first (his ~0 vs ours +7 ⇒ our cal; both +7 ⇒ inherent front-end).
 23. **Guard disabled-channel measurements (F29).** `ui_display_measurements` draws every slot
     unconditionally; blank/dash slots whose channel is disabled (fixes CH2 showing −22 V).
+    *Done in code + bench-verified 2026-07-17 (both renderers dash disabled slots). The
+    −22 V source itself stays gated on the pecostm32 A/B (F30 umbrella).*
 
 ## Port-seam sweep follow-ups (2026-07-16, PORT_AUDIT F31–F33)
 
@@ -133,3 +148,83 @@ Written 2026-07-09 after the port audit + fix pass (PORT_AUDIT.md). Ordered roug
     `sm_toggle_channel_enable` was left matching the references (PORT_AUDIT F31 note). Bench
     test: boot with a channel disabled in the saved config, enable it live — if its trace is
     dead until reboot, add the push (one line, plus the same for disable).
+
+## Acquisition / multi-sampling ideas (2026-07-17 — EEVBlog fold-over idea revisited)
+
+Background: the 2023 EEVBlog rebuttals ("needs a programmable trigger delay"; "ETS capped at
+analog BW anyway") addressed *sequential* ETS. What was actually proposed is **random
+interleaved sampling** (RIS): trigger quantization to the sample clock gives every capture a
+uniformly random sub-sample phase for free, and alignment happens in software. No FPGA change
+needed; capture-geometry facts + open post-trigger-fill question in FPGA_NOTES §capture
+geometry. Trigger-level dithering is a dead end (the level never moves the sampling instants —
+it only picks a different reference sample). All of this runs on stock fw_FPGA==1; the Atlan4
+bitstream (deeper/settable capture via 0x0B/0x0C) is a separate track (items 16–18).
+
+25. **Multi-capture noise stacking + persistence (repetitive signals).** Keep the last N
+    triggered records in DRAM (~25 MB free; a record is 3 KB/ch) aligned on the existing
+    `disp_trigger_index`; render average (σ/√N — the AFE band-limit *guarantees* repetitive
+    waveforms are identical, so stacking is the right noise tool and Vpp/Vmax/Vmin from the
+    averaged waveform stop over-reading noise) and min/max envelope (honest jitter/glitch
+    view). Whole-sample alignment first; that alone is a visible win.
+26. **RIS fine-grid overlay** (the fold-over idea proper). Sub-sample-align each capture
+    (short cross-correlation against the accumulating template; precision ≈ noise/slew,
+    typically 1/10–1/30 sample) and bin into a 2–8× finer time grid → dense edges within the
+    analog BW instead of 3–10 dots/cycle at 20–60 MHz. STOP-mode post-processing first, live
+    later if the burst rate (item 27) holds up. **Single-buffer variant:** fold the multiple
+    signal cycles inside one record onto one period (needs a precise period estimate:
+    least-squares over all zero crossings + refine by minimizing per-bin variance) — works on
+    a stopped trace with zero FPGA cooperation. Caveat both variants: the scope's own
+    cal/probe-comp output is FPGA-clock-derived ⇒ phase-locked ⇒ no natural phase walk; demo
+    with an external source or the detune helper (item 28).
+27. **Burst-capture infrastructure + ring-dump probe** (the enabler; do first). Timer-measure
+    real captures/s (estimate 100–500/s; UART key poll must be skipped during a burst), and
+    dump the full ~4096/ADC ring after a one-shot pulse to answer the post-trigger-fill
+    question (FPGA_NOTES §capture geometry) — decides whether the 2.7× unread ring is
+    pre-trigger history or post-trigger record, and validates 8190-sample extended reads.
+    *Probe implemented 2026-07-17 (Factory settings → Acquisition probe): phase A arm→flag
+    rate, phase B full-readout rate, phase C 5×4608-sample ring dump (all four ADCs + a
+    re-read determinism block) from the raw 0x14 address; writes `acqprobe.txt` +
+    `ringdump.bin` to SD root and shows the rates on screen. Bench run + offline dump
+    analysis pending — run it at ≤1 µs/div with an identifiable signal (e.g. probe comp).*
+28. **Clock experiments, honest version.** (a) *Below-stock presets* (44.4/40/33.3 MHz =
+    p1b 7/8/10) added to Factory settings → Sampling clock for a shorted-input σ A/B against
+    50 MHz. Expectation to test, not assume: per-sample noise ~unchanged — the AFE band-limit
+    means slower sampling just folds the same noise power (oversampling+averaging is the
+    lever, items 25/27); the 2023 "noise grows with clock" was overclock-specific (ADCs past
+    their 100 MSPS rating + fabric near its ~300 MHz ceiling — the "broke altogether" point),
+    not a law that extrapolates below stock. Possible small win from reduced switching
+    activity; let the bench decide. (b) *Fractional detune helper*: `clock_synthesizer.c`
+    writes only integer P1 today; add MSNA fractional (P2/P3, 20-bit) for few-ppm offsets —
+    breaks phase lock with clock-derived signals (item 26 caveat) and enables deliberate
+    phase-walk folding. (c) *HiRes/boxcar single-shot*: where the timebase has rate headroom,
+    command a faster 0x0D rate and boxcar M:1 down to display rate → σ/√M without needing a
+    repetitive signal; window shrinks ×M (full-ring read claws back ~2.7×), so practical for
+    1–2 rate steps.
+29. **Serial-bus capture aids (single-shot family — stacking does not apply, the reply data
+    varies).** The trigger latches the *first* edge; the interesting part (e.g. the reply to
+    a query) comes later. (a) *n-th-edge display anchor*: count edges from the hardware
+    trigger in software (extend the `scope_process_trigger` scan) and anchor the display
+    there — works within the captured window today. (b) *Window offset*: `0x1F` can start the
+    read after the trigger point, but on stock the proven post-trigger data is only
+    +750/ADC (item 27 resolves the real cap); replies beyond it need a slower sample rate —
+    or the Atlan4 bitstream's settable trigger placement (0x0B pretrigger ⇒ mostly-post-trigger
+    records), which is the clean fix on the FPGA-migration track. (c) *Software hold-off*:
+    delay re-arming (`fpga_do_conversion` timing is MCU-controlled) — ms-precision, fine for
+    protocol gaps. (d) *Segmented bursts*: keep M consecutive triggered records with MCU
+    timestamps (poll-granularity, so ms-scale inter-segment timing only).
+30. **Hardware mods queue (sources: donwulff-notes.md + 2023 EEVBlog thread; parts on hand,
+    shields currently off — deferred to a later context, recorded here for it).**
+    Bandwidth-targeted: OPA356 buffer-opamp swap (360 V/µs, 5.8 nV/√Hz vs the stock
+    RS8751's 180 V/µs, 8 nV/√Hz — marauder precedent) and KAQY214S (or ~20 Ω resistor) in
+    parallel with R62/R80 to raise the input low-pass corner toward ~100 MHz (unverified
+    Russian-forum simulation; a thread poster notes the anti-alias corner *should* sit at
+    40–50 % of Nyquist, so raising it trades aliased noise for bandwidth at 200 MSa/s —
+    makes items 25/26 *more* valuable, not less). Noise-targeted: Evi's dual-supply /
+    ground-level mod (fixes the ground shift when the front USB is plugged into a PC; ADC
+    negative-reference biasing), ADC heatsinks (AD9288 SINAD drops fast over temperature;
+    bench: ADCs run ~20 °C over ambient, the MS5351M ~30 °C over — hottest on board; Hantek
+    6022BL ships the same ADC with a glued heatsink), and refitting the EMI shields (the
+    "breathing" interleave residual, FPGA_NOTES §screenshot analysis). Gain idea riding the
+    opamp swap: 50 mV/div is software zoom off the 100 mV/div hardware range (≈7-bit,
+    FPGA_NOTES §capture geometry) — a real gain stage / higher-gain buffer could make it a
+    hardware range, if the firmware scaling is taught about it.

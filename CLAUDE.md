@@ -60,6 +60,10 @@ History: `main` = pristine pecostm32 1013D upstream; `PORT_A` = first-generation
   (`zaklad.v`, reports version `0x1532` → `fw_FPGA=2`), prebuilt bitstreams, stock-1013D
   SPI-flash dump, and `FPGA commands.txt` (stock-FPGA protocol reference). See
   FPGA_NOTES.md §migration before touching.
+- `donwulff-notes.md` — text copy (2026-07-17, images not vendored) of the user's own
+  hardware/theory notes from github.com/Donwulff/FNIRSI-1013D-1014D-Hack `notes.md`:
+  bandwidth/sensitivity analysis, hardware-mod queue sources, FPGA flash/bitstream findings.
+  Content incorporated into FPGA_NOTES.md / ROADMAP.md 2026-07-17.
 - `pecostm32-RE/` — pecostm32's 1014D reverse engineering, fetched 2026-07-10 from his
   `Anlogic_AL3-10_Analyzing` + `FNIRSI-1013D-1014D-Hack` repos: stock 1014D FPGA flash dump
   + decompiled netlist + authoritative 1014D pinout (`Original_1014D_fpga_generated.adc`),
