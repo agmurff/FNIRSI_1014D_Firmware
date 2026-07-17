@@ -87,8 +87,9 @@ Written 2026-07-09 after the port audit + fix pass (PORT_AUDIT.md). Ordered roug
     hardware doesn't really offer — fixed validated presets from a debug menu are the
     sane shape. For interleave itself, the cheap software approach: even/odd sample
     statistics (means/variances of the two ADC streams should match on any live signal)
-    → auto-trim per-ADC offset/gain until they do; phase skew needs fast edges, not the
-    1 kHz cal output.
+    → auto-trim per-ADC offset/gain until they do; phase skew needs fast edges from an
+    **external** source (the 1014D has no probe-comp output, and its AWG works only under
+    stock firmware — item 14).
 
 ## FPGA + bootloader migration (tracked in FPGA_NOTES.md / BOOT_NOTES.md)
 
@@ -173,9 +174,11 @@ bitstream (deeper/settable capture via 0x0B/0x0C) is a separate track (items 16�
     later if the burst rate (item 27) holds up. **Single-buffer variant:** fold the multiple
     signal cycles inside one record onto one period (needs a precise period estimate:
     least-squares over all zero crossings + refine by minimizing per-bin variance) — works on
-    a stopped trace with zero FPGA cooperation. Caveat both variants: the scope's own
-    cal/probe-comp output is FPGA-clock-derived ⇒ phase-locked ⇒ no natural phase walk; demo
-    with an external source or the detune helper (item 28).
+    a stopped trace with zero FPGA cooperation. Caveat both variants: there is **no
+    on-board test signal under this firmware** (no probe-comp output on the 1014D; the AWG
+    BNC is stock-only, item 14) — and even a future REd AWG would be FPGA-clock-derived ⇒
+    phase-locked ⇒ no natural phase walk; demo with an external source (user's standalone
+    TCXO once powered/verified) or the detune helper (item 28).
 27. **Burst-capture infrastructure + ring-dump probe** (the enabler; do first). Timer-measure
     real captures/s (estimate 100–500/s; UART key poll must be skipped during a burst), and
     dump the full ~4096/ADC ring after a one-shot pulse to answer the post-trigger-fill
@@ -185,7 +188,11 @@ bitstream (deeper/settable capture via 0x0B/0x0C) is a separate track (items 16�
     rate, phase B full-readout rate, phase C 5×4608-sample ring dump (all four ADCs + a
     re-read determinism block) from the raw 0x14 address; writes `acqprobe.txt` +
     `ringdump.bin` to SD root and shows the rates on screen. Bench run + offline dump
-    analysis pending — run it at ≤1 µs/div with an identifiable signal (e.g. probe comp).*
+    analysis
+    pending. Signal note: no on-board source exists (item 14) — the rate phases and the
+    wrap/re-read-determinism analysis need no signal at all; locating the trigger inside
+    the ring benefits from any identifiable waveform (floating-probe mains hum at slower
+    timebases works; an external edge source is better; TCXO pending).*
 28. **Clock experiments, honest version.** (a) *Below-stock presets* (44.4/40/33.3 MHz =
     p1b 7/8/10) added to Factory settings → Sampling clock for a shorted-input σ A/B against
     50 MHz. Expectation to test, not assume: per-sample noise ~unchanged — the AFE band-limit

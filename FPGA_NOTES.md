@@ -403,9 +403,10 @@ Remaining gaps (deliberate): the chosen clock is **not persisted** (every boot r
 math above — a full audit of time-derived paths (measurements, cursors, file save) is
 ROADMAP-15 work before an overclock is ever left enabled in daily use. The quiet-input
 metric still cannot see *dynamic* overclock failures (ADC aperture/settling on real
-signals) — the honest verdict on any overclock is the manual A/B with a real signal, e.g.
-the probe-comp square; scoring edge consistency against the cal output is a possible
-future upgrade. The stock-rate sawtooth itself is a *systematic* even/odd ADC error, not
+signals) — the honest verdict on any overclock is the manual A/B with a real signal,
+which on this bench means an **external** source: the 1014D has **no probe-comp output**
+(the AWG BNC is the cal source, and it only works under stock firmware — ROADMAP 14), so
+under this firmware there is no on-board test signal at all. The stock-rate sawtooth itself is a *systematic* even/odd ADC error, not
 EMI (bench: removing the analog front-end shields made no difference) — the fix direction
 is interleave gain trim, not shielding (ROADMAP 15/11).
 
