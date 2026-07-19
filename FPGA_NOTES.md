@@ -88,53 +88,84 @@ Atlan4's 35-entry `timeperdiv` space: indices 0–10 = "long" (50 s/div … 20 m
   trigger system** (`0x0F` data `0x01`); the rate still goes via `0x0D`, and acquisition
   switches to the roll-mode path `scope_get_long_timebase_data()` in the main loop.
 
-## Stock-FPGA capture geometry (inferred from code + RE, 2026-07-17)
+## Stock-FPGA capture geometry (code + RE 2026-07-17; bench-measured 2026-07-19)
 
 Derived while revisiting the EEVBlog multi-sampling idea; read out of
-`scope_acquire_trace_data()` / `fpga_read_sample_data()` plus pecostm32's bus captures.
-Code-inferred, not netlist-verified — the open items below are one bench probe away.
+`scope_acquire_trace_data()` / `fpga_read_sample_data()` plus pecostm32's bus captures,
+then measured on hardware with the acquisition probe below (first run 2026-07-19, no
+probes attached: data `bench/acqprobe/2026-07-19-no-probes/`, analyzer
+`tools/acqprobe_analyze.py`). Only the exact post-trigger fill boundary still needs a
+driven run.
 
 - **Trigger is a digital comparator** on the ADC sample stream (level = one 8-bit ADC code
   via `0x17`, edge `0x16`, source `0x15`). Trigger time is therefore quantized to the
   sample clock; against any signal not phase-locked to the Si5351 the sub-sample phase is
   uniformly random per capture. A constant ADC pipeline delay is common to all captures.
-- **Ring buffer ≈ 4096 samples per ADC** (12-bit trigger address from `0x14`; the fw1
-  read-pointer math `data<750 ? +3345 : −750` is a wrap at 4095+1). Four rings total
-  (2 ch × 2 ADC) plus pecostm32's reported AWG block.
+- **Ring buffer = 4096 samples per ADC — bench-confirmed** (12-bit trigger address from
+  `0x14`; the fw1 read-pointer math `data<750 ? +3345 : −750` is a wrap at 4095+1). Four
+  rings total (2 ch × 2 ADC) plus pecostm32's reported AWG block. Measured: 4608-sample
+  dumps give `b[k] == b[k+4096]` byte-exact in all 15 blocks of the first run (equality
+  collapses to the noise floor at W=4095/4097 and at 512/1024/2048), so the read pointer
+  is strictly modulo 4096. The one exception is itself a finding: **the first byte
+  clocked out after a `0x1F` pointer write is a stale pipeline byte** (every wrap
+  mismatch sat at sample 0, off by ±1 code, reproducible) — raw readers must discard
+  sample 0.
 - **Readout uses only ~37 % of the ring**: read pointer = trigger − 750 (per ADC) via
   `0x1F`, then 1500 samples per ADC × 2 ADCs → 3000 interleaved per channel centered on
   the trigger. The other ~2600 samples per ADC stay unread. `0x1F` accepts an arbitrary
   pointer and the same capture can be re-read repeatedly (the code already rewinds it
   between the ADC1 and ADC2 reads), so **full-ring dumps and offset windows need no FPGA
-  change**.
-- **Open question — post-trigger fill depth**: the flag read by `0x0A` is
-  "triggered/buffer full", and the fixed −750 read start proves ≥750 per-ADC post-trigger
-  samples get filled, but whether capture stops there (⇒ unread headroom is *pre*-trigger
-  history, useful for "what led up to it") or keeps filling the ring (⇒ headroom is
-  *post*-trigger, useful for delayed-window/serial-reply work) is unknown. `0x0E`'s large
-  values (e.g. 411100 at 10 ns/div) look like the auto-mode trigger timeout, not a fill
-  count (matches the Slovak comment in `fpga_set_time_base`). **Probe:** capture a
-  single identifiable pulse, dump the full ring with stepped `0x1F` reads, see where the
-  pulse sits and where data goes stale; pecostm32's decompiled netlist is the paper
-  fallback.
+  change**. Bench: a full re-read 5+ ms later is byte-identical and the ring is static
+  once the `0x0A` flag is set — the writer stops, reads don't disturb it, multi-pass
+  readout is safe. A disabled channel's ADCs keep sampling too (ch2-off dumps returned
+  live data on 0x22/0x23): all four rings are always available.
+- **Post-trigger fill depth — narrowed 2026-07-19, one driven run from closed**: the
+  `0x0A` flag is "triggered/buffer full" and the fixed −750 read start proves ≥750
+  per-ADC post-trigger samples. First-run measurements add: at 100 µs/div the arm→flag
+  time is 3.39 ms ≈ **3345 samples at 1 MSa/s + MCU overhead — numerically the fw1
+  translation constant** (`+3345` ≡ −751 mod 4096), and the raw 0x14 address under
+  auto+no-signal clusters at ~802–813 counts at both 1 µs and 100 µs per div (⇒ the
+  auto latch fires a rate-independent ~800 *samples* after arm; 100 ns/div clusters
+  wider, ~1000–1460). Together these suggest one auto capture writes ~3345 samples from
+  arm and stops, putting the implied post-trigger fill at ≈2500 samples (~62 % of the
+  ring) — the unread headroom would be mostly *post*-trigger record, exactly what the
+  serial-reply window wants (ROADMAP 29). Open inputs couldn't localize the fresh/stale
+  seam to confirm it (no waveform to make the boundary visible; candidate steps
+  disagreed across the four ADCs). **Closing run:** floating-probe mains hum at
+  2–10 ms/div → run the probe → the analyzer's seam scan reads the boundary directly.
+  `0x0E`'s large values (e.g. 411100 at 10 ns/div) still look like the auto-mode
+  trigger timeout, not a fill count (matches the Slovak comment in
+  `fpga_set_time_base`).
 - **Software trigger re-find already exists**: `scope_process_trigger()` re-locates the
   exact crossing near buffer center (stepping by 2 to stay on one ADC's parity, dodging
   the interleave offset) and the display anchors on `disp_trigger_index` — i.e.
   whole-sample multi-capture alignment is effectively already written; only accumulation
   and (for RIS) fractional refinement are missing. See ROADMAP §acquisition/multi-sampling.
-- **Readout cost estimate** (unmeasured): the Port E bit-bang loop is ~3 MMIO accesses +
-  ~20 instructions per sample → order 0.5–1 ms per 3000-sample channel, suggesting
-  100–500 captures/s in a dedicated burst mode (today's main loop is additionally gated
-  by the blocking UART key poll). Measure with the timer before designing on top of it.
+- **Readout cost — measured 2026-07-19**: the standard `fpga_read_sample_data()` path
+  costs 2.6–3.1 µs/sample (MCU-side per-sample work dominates, not the bus), capping the
+  normal acquire cycle at the measured 90–128 captures/s at every timebase tried. The
+  raw `fpga_dump_ring()` tight loop moved 23040 bytes in 7–8 ms = **0.30–0.35 µs/sample
+  (~3 MB/s), ~10× faster** — a burst mode reading the 2×1500 display window raw would
+  spend ~1 ms/capture. Arm+capture alone: 21 k/s at 1 µs/div (≈47 µs MCU overhead per
+  arm), 3.8 k/s at 100 ns/div (the ≤200 ns `0x28` mode-select path adds ~0.22 ms/arm),
+  295/s at 100 µs/div (fill-time-bound). Net: **~500–900 stacked captures/s** feasible
+  at fast timebases, full-ring 4-ADC stacking ~150–200/s; one second at 500/s ⇒
+  σ/√N ≈ 22×.
 - **Measurement probe exists (2026-07-17, bench run pending):** Factory settings →
   *Acquisition probe* (`scope_do_acquisition_probe()`, raw reads via `fpga_dump_ring()`)
   measures the arm→flag rate, the full-readout rate, and dumps 5×4608 samples (ADC
   commands 0x20/0x21/0x22/0x23 + 0x20 again for determinism) starting at the raw 0x14
   address, to SD root as `acqprobe.txt` + `ringdump.bin` (4-char magic "ACQP", six LE
   uint32s: version, timeperdiv, samplerate idx, raw 0x14, blocks, samples/block, then the
-  five command bytes, then the sample blocks). Where the dump goes stale relative to the
-  trigger address answers the post-trigger-fill question above; equal first/last 512 of a
-  block ⇒ 4096 wrap; block 0 vs block 4 differences ⇒ bus/readout nondeterminism.
+  five command bytes, then the sample blocks). **First bench run analyzed 2026-07-19**
+  (100 ns / 1 µs / 100 µs per div, open inputs, auto trigger): wrap, determinism, rate
+  and pipeline-byte results folded into the bullets above. Also observed: raw A−B DC
+  offsets inside the rings of ~1.4–2.5 codes (ch1) and ~4.9–5.5 codes (ch2, channel
+  disabled) — uncalibrated ring data; the Base-cal interleave comps correct this at
+  display time. Both 0x14 address parities occur (no even-only quantization). Runs are
+  copied off as `bench/acqprobe/<date-conditions>/` (the scope overwrites its two SD
+  files every run); `tools/acqprobe_analyze.py` prints the full report and exports
+  `--csv`.
 - **Independent corroboration** (`donwulff-notes.md`, 2022-era): "2500 displayed of 3000
   available with room for 4096" and a ~24 KB total sample-memory figure — matches the
   12-bit-ring inference (4×4096 = 16 KB + AWG block ≈ 20+ KB).
@@ -297,7 +328,49 @@ unidentified EEPROM-like IC (Atlan4's `zaklad.v` even comments "Not implemented 
 version is the I2C interface part"). So Atlan4's bitstream **cannot be flashed as-is** —
 porting = retarget `zaklad.v` with the 1014D `.adc` pinout and decide what to do about the
 DAC/I²C/second-clock functions (the decompiled stock netlist is the reference for their
-behavior).
+behavior). **The retarget pinout now exists: `fpga/zaklad_1014d.adc` + `fpga/README.md`**
+(2026-07-18, desk-derived name-map of the stock `.adc` onto zaklad.v's ports, with the
+required zaklad.v patch, SDC starter, and do-not-flash gates). The "EEPROM-like IC" is
+decoded behaviorally below.
+
+### The "special IC" (U5) — behavior decoded, identity still unknown (2026-07-18)
+
+The unidentified I²C chip deserves its own entry: pecostm32's vendored RE documents it in
+depth, short of naming the part — which answers "why has no discussion identified it": he
+couldn't either, and drew it as **"UNKOWN IC"**.
+
+- **Board side** (`Schematics/1014D/Scope_1014D_Data_Acquisition.png`): U5 has a
+  24Cxx-EEPROM-style 8-pin pinout (A0/A1/A2/VSS | SDA/SCL/WP/VCC), 10 K pullups, a
+  diode-dropped 3V3_A supply, nets `FPGA_SPECIAL_IC_SDA/SCL` → FPGA P33/P34 — and its own
+  **4-pin header J3 "SPECIAL IC"** (probe/dump access without soldering).
+- **Bus side**: the stock FPGA is a bit-banged I²C master to it (large state machine in
+  the decompiled netlist) and proxies it to the MCU as a 7-byte register file — FPGA
+  commands **0x64/0x65** (prepare read/write, each sent twice), **0x66** (start
+  transaction), **0x67** (busy flag), **0x68 XOR-crypt byte**, **0x69** parameter id +
+  byte count (`iiiiiicc`), **0x6A checksum**, **0x6B–0x6E** 32-bit value
+  (`FPGA explained.txt`).
+- **What it serves** (`parameter_analysis.txt`; pecostm32's verdict: *"It is not a storage
+  device, but some sort of translator"*): param **0x0C/0x0D return the FPGA command
+  numbers for reading CH1/CH2 sample data** (0x20/0x22 — stock firmware literally asks
+  this chip which opcode reads the ADC buffer); **0x16** returns 16 bits that stock
+  firmware writes to FPGA reg **0x3C** and later must read back via **0x41 == 0x8150 or
+  it hangs in an endless loop** (0x8150 is, cutely, the GT911 touch-register address —
+  and why Atlan4's zaklad.v calls its 0x3C loopback register `touch_panel_address`; our
+  init's odd `0x3C` write is this handshake's vestige). 0x0B returns a fixed per-v/div
+  byte (0xAD/0xAF/0xB4/0xB4/0xB8/0xB8/0xB8), 0x11 computes `(in>>4)+2`, 0x10 scales
+  brightness 0–100 → 0–0xEA60, 0x14 (input always 0xED) returns yet another command byte.
+  Several params *compute* ⇒ likely a tiny MCU in an EEPROM footprint = **anti-clone /
+  pairing gadget**, not a config store.
+- **When it talks**: constantly during <100 ms/div acquisition; from 100 ms/div up stock
+  firmware stops addressing it entirely (`readme.txt`).
+- **Is it needed? No.** pecostm32 left this open ("Would be interesting to see if the
+  special IC is really needed"), but the answer has been running on our bench all along:
+  neither pecostm32's 1014D firmware nor this tree ever sends 0x64–0x6E (grep-verified
+  both), both run fine on the stock FPGA, and Atlan4's replacement design doesn't
+  implement the bridge at all ("Not implemented in this version is the I2C interface
+  part"). It gates only the **stock** firmware (the 0x41 hang). If identifying it ever
+  matters: read the package marking on the board, sniff/dump via J3, or trace the
+  netlist's I²C engine for the address byte it emits.
 
 **Toolchain and frequency headroom:** the projects are **Anlogic Tang Dynasty (TD)**
 projects (`FPGA.al`; the EF2 readme pins TD 4.6.8 SP1) — TD is a free download (license
@@ -495,8 +568,10 @@ Goal: headless synth→P&R→bitgen on this Linux server; hands-on only for flas
 **Status 2026-07-17: TD 5.0.4 build 27252 is installed on the user's Windows laptop**
 (the `TD_5.0.4_27252_Win7_64bit_NL.msi` download; installer is Chinese — buttons by
 position — but the installed IDE is English and shows AL3-family device data in the
-interface). License-file validity **not yet verified** (`Anlogic_20251116.lic` is the
-newest on hand). The Linux 5.0.3 headless install on this server is still pending.
+interface). **License confirmed working in practice 2026-07-18** (`Anlogic_20251116.lic`, FEATURE
+expiry **2026-08-31**): the AL3 project synthesizes, places, routes and bitgens on the
+laptop — see §TD rebuild below. **The Linux 5.0.3 headless install on this server is
+DONE the same day** (GTK2-stub recipe + working batch flow: §TD rebuild).
 English translations of Anlogic docs: github.com/kprasadvnsi/Anlogic_Doc_English.
 
 - **What Atlan4 used:** `FPGA.al` says `TD_Version 4.6.116866` = **TD 4.6.8 SP1 build
@@ -538,3 +613,83 @@ English translations of Anlogic docs: github.com/kprasadvnsi/Anlogic_Doc_English
 - TD's own JTAG programming is capped at 400 kbps (Sipeed note) — irrelevant for us; the
   flash route is SPI on header J2 (CH341A / Bus Pirate `flashrom buspirate_spi` / J-Link
   `flashrom jlink_spi`).
+
+### TD rebuild of the AL3 project — first laptop results (2026-07-18)
+
+The §flow-validation step ran, on the Windows side: **TD 5.0.4 builds the vendored AL3
+project end-to-end** (license works). Headline timing vs Atlan4's shipped report
+(`FPGA_phy.timing`, TD 4.6.8 — and his `FPGA.al` sets **no effort options at all**, only
+bitgen `bin=on`):
+
+| clock group | shipped 4.6.8, defaults | laptop 5.0.4, effort=high |
+|---|---|---|
+| `clk_200MHz` | 160.4 MHz eq., TNS −21.1 ns (38 endpoints) | **288.6 MHz eq., TNS 0.000** |
+| `pll clkc[0]` (alias of clk_200MHz) | 97.7 MHz eq., TNS −172.9 ns | (not double-reported) |
+| `pll clkc[1]` (= `clk_ADC`, 90°) | 103.4 MHz eq., TNS −26.0 ns | 146.9 MHz eq., TNS −3.31 ns |
+
+Effort knobs used (in `FPGA.al` `<Property>`): `GateProperty` opt_timing/pack_effort high;
+`Place`/`RouteProperty` effort + opt_timing high. Takeaways:
+
+- **The bitstream Atlan4 ships is far timing-dirtier than a modern high-effort rebuild**
+  (worst shipped slack −5.234 ns) — and it works on real 1013Ds anyway. The report corner
+  is TT 1.10 V 85 °C (typical silicon, not worst-case), which calibrates how alarming
+  "negative slack" is here: the design survives on real margins, but the rebuild headroom
+  is free — keep the high-effort settings.
+- **The remaining clkc[1] violation is structural, not an effort problem.** Path (same
+  shape in both TD versions, from the shipped report's detail): launch = the 32-bit
+  `sample_rate_counter` compare producing `sample_clock_enable`, off **falling clkc[0]**
+  (2.5 ns); capture = the **CE pins of the `adc*_enc*` toggle flops** on **falling
+  clkc[1]**, which — 90°-shifted — falls at 3.75 ns: a **1.25 ns window with a carry
+  chain in it**. Severity: at samplerate 0 (200 MSa/s, where interleave matters most) the
+  enable sits statically at 1 ⇒ the crossing is inert; at divided rates a miss shifts an
+  ADC encode edge 5 ns against `sample_write_clock` (occasional sample-pairing glitch).
+  Proper fix is RTL — retime the enable into the `clk_ADC` domain while keeping the
+  encode/write-clock phase relation — or a *justified* multicycle exception, not more
+  placer effort.
+- **Both reports are blind where it matters.** TD warns `clk_50MHz`,
+  `sample_write_clock`, `i_mcu_clk_pad` carry no clock constraint — i.e. the entire
+  write-address / trigger / timebase machinery (everything clocked by
+  `sample_write_clock`) plus all 50 MHz peripherals are **excluded from STA**, and there
+  are zero IO delay constraints, so the ADC data-capture interface (the thing that decides
+  interleave quality) is untimed. Fix the SDC (generated clocks ÷2/÷4, loose async
+  `i_mcu_clk`, `set_input_delay` on the ADC buses vs the encode outputs, de-dup the
+  net-based `clk_200MHz` vs auto-derived `clkc[0]` double-count, normalize the odd
+  `-waveform {0 2}` 40 % duty) **before** A/B-ing synthesis settings — otherwise the
+  sweep optimizes a partial picture. Starter block in `fpga/README.md`.
+- Next flow-validation checkpoints: bitstream size ≈ shipped `FPGA.bin` (283 KB), device
+  id packet `f0 00 0006 18006c31` (al3_10) and the `ec f0 0433` frame marker present
+  (§flash/bitstream findings above), then the 1014D retarget via `fpga/zaklad_1014d.adc`.
+
+**2026-07-18 (later): Linux headless flow VALIDATED, 1014D bitstream BUILT.** TD 5.0.3
+now runs on this server: unzip to `~/tools/anlogic-td/TD_5.0.3_28716_NL/`, license in
+`license/Anlogic.lic` (the 2025-08-30 community lic: **FEATURE expiry 2026-08-31**,
+HOST_ID=ANY — the clock driving this push), plus two **stub GTK2 libs** (empty `.so`s
+with matching sonames in `~/tools/anlogic-td/shim/`, on `LD_LIBRARY_PATH` — the binary
+links libgtk-x11/libgdk-x11 unconditionally but batch mode never calls them). Cosmetic:
+"sh: Bad fd number" spam = TD shelling bashisms at dash `/bin/sh`.
+
+- **Batch-flow quirks** (encoded in `fpga/AL3_1014D/build.tcl`): `read_verilog` takes
+  exactly ONE `-file` and elaborates immediately ⇒ concatenate the sources; the AL_*
+  primitive models go in via `-lib $TD/arch/al3_macro.v`; `import_device al3_10.db`
+  without `-package` defaults to LQFP144 (the die's only package — explicit package
+  strings are all rejected); `bitgen -bit x.bit -bin x.bin` (the `.bin` is the
+  flashable SPI image); Tcl introspection (`info commands`) is how the flow was mapped.
+- **Flow validation** (vendored 1013D project, all defaults): 602 LUT / 458 reg /
+  32 BRAM9K / 60 IO (shipped: 620/471/32/60), `.bit` 285,324 B vs shipped 285,341 B;
+  timing clk_200MHz **277.9 MHz eq., TNS 0** and clkc[1] 144.5 MHz, −3.71 ns. ⇒
+  **correction to the table above: the rebuild improvement is mostly the 4.6→5.0
+  version jump, not the effort settings** — three-point comparison: 4.6.8-defaults
+  (shipped) 160.4 MHz/−21.1 → 5.0.3-defaults (server) 277.9/0 → 5.0.4-high (laptop)
+  288.6/0 (effort adds only ~4 %). clkc[1] negative in every build = structural, as
+  analyzed.
+- **1014D retarget built** (`fpga/AL3_1014D/`, sources tracked; artifacts + reports
+  curated in `out/`): 70 I/O (37 in/23 out/10 inout) all at stock-1014D locations
+  (spot-checked P7 backlight, P23/P24 clocks, P33/34 I²C, P64/P85/P88/P121 encodes,
+  P133 ac_dc_2, P38–P50 DAC), 32 BRAM9K, timing at defaults 264.0 MHz/TNS 0 +
+  clkc[1] 149.3/−3.38; **`FPGA_1014D.bin` = 282,898 B — byte-count-identical to
+  Atlan4's shipped .bin** — with the al3_10 id packet (`cc55aa33 f0000006 18006c31`)
+  and `ec f0 0433` frame marker in place. **NEVER FLASHED** — every gate in
+  `fpga/README.md` (1014D loader patch first!) still applies.
+- IOB packing differs across TD versions (shipped 4.6: 14 output regs in IOBs, encA
+  yes/encB no; 5.0.3 defaults: 1) — encode pin-to-pin skew is build-dependent;
+  symmetric IOB packing on all four encodes is a listed tuning item.

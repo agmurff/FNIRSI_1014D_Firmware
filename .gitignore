@@ -8,11 +8,12 @@
 /Bootloader fw0.02 and fw0.03 and fw0.04/
 /Bootloader fw0.02 and fw0.03 and fw0.04.zip
 
-# Bench screenshots copied off the scope's SD card for analysis
-/fnirsi_1013d_scope/*.bmp
+# Bench data off the scope (screenshots/, acqprobe/ capture runs) — also self-ignored
+# via bench/.gitignore so it stays out of git even if this file is reverted
+/bench/
 
 # Saved copy of the EEVBlog forum thread on this port, kept locally for reference
-/fnirsi_1013d_scope/EEVBlog_FNIRSI_1014D_port.html
+/EEVBlog_FNIRSI_1014D_port.html
 
 # Text copy of the user's own hardware/theory notes (images not vendored) —
 # source: https://github.com/Donwulff/FNIRSI-1013D-1014D-Hack/blob/main/notes.md
@@ -20,3 +21,7 @@
 
 # opencode agent workspace
 /.opencode/
+
+# TD build directory for the 1014D FPGA retarget (curated artifacts live in
+# fpga/AL3_1014D/out/ instead)
+/fpga/AL3_1014D/build/

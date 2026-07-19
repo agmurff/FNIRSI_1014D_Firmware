@@ -187,12 +187,20 @@ bitstream (deeper/settable capture via 0x0B/0x0C) is a separate track (items 16�
     *Probe implemented 2026-07-17 (Factory settings → Acquisition probe): phase A arm→flag
     rate, phase B full-readout rate, phase C 5×4608-sample ring dump (all four ADCs + a
     re-read determinism block) from the raw 0x14 address; writes `acqprobe.txt` +
-    `ringdump.bin` to SD root and shows the rates on screen. Bench run + offline dump
-    analysis
-    pending. Signal note: no on-board source exists (item 14) — the rate phases and the
-    wrap/re-read-determinism analysis need no signal at all; locating the trigger inside
-    the ring benefits from any identifiable waveform (floating-probe mains hum at slower
-    timebases works; an external edge source is better; TCXO pending).*
+    `ringdump.bin` to SD root and shows the rates on screen. **First run analyzed
+    2026-07-19** (open inputs; data `bench/acqprobe/2026-07-19-no-probes/`, analyzer
+    `tools/acqprobe_analyze.py`): ring modulo-4096 confirmed; ring static after the done
+    flag and re-reads byte-identical ⇒ extended/multi-pass readout validated; first byte
+    after a `0x1F` pointer write is stale (discard it); raw dump 0.30–0.35 µs/sample ≈
+    10× the standard path ⇒ ~500–900 raw-window captures/s feasible vs the measured
+    90–128/s standard cycle; arm-only 21 k/s (1 µs/div) / 3.8 k/s (100 ns, 0x28-path
+    overhead) / 295/s (100 µs, fill-bound ≈ 3345 samples ≈ the fw1 +3345 constant).
+    Remaining: post-trigger fill boundary — one driven run (floating-probe hum at
+    2–10 ms/div); FPGA_NOTES §capture geometry. Follow-ups queued: per-run directory +
+    unique filenames on the SD side (the probe overwrites its two files at SD root —
+    fine for a probe, wrong for a future "save raw capture" feature; user request
+    2026-07-19), and richer host export off `ringdump.bin` (analyzer `--csv` exists;
+    sigrok/npz once something consumes them, ties into item 13).*
 28. **Clock experiments, honest version.** (a) *Below-stock presets* (44.4/40/33.3 MHz =
     p1b 7/8/10) added to Factory settings → Sampling clock for a shorted-input σ A/B against
     50 MHz. Expectation to test, not assume: per-sample noise ~unchanged — the AFE band-limit
@@ -212,8 +220,9 @@ bitstream (deeper/settable capture via 0x0B/0x0C) is a separate track (items 16�
     a query) comes later. (a) *n-th-edge display anchor*: count edges from the hardware
     trigger in software (extend the `scope_process_trigger` scan) and anchor the display
     there — works within the captured window today. (b) *Window offset*: `0x1F` can start the
-    read after the trigger point, but on stock the proven post-trigger data is only
-    +750/ADC (item 27 resolves the real cap); replies beyond it need a slower sample rate —
+    read after the trigger point, but on stock the *proven* post-trigger data is only
+    +750/ADC — the 2026-07-19 probe run points at ≈2500 (FPGA_NOTES §capture geometry;
+    one driven run closes it); replies beyond the cap need a slower sample rate —
     or the Atlan4 bitstream's settable trigger placement (0x0B pretrigger ⇒ mostly-post-trigger
     records), which is the clean fix on the FPGA-migration track. (c) *Software hold-off*:
     delay re-arming (`fpga_do_conversion` timing is MCU-controlled) — ms-precision, fine for

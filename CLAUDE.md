@@ -70,6 +70,18 @@ History: `main` = pristine pecostm32 1013D upstream; `PORT_A` = first-generation
   full 1014D board schematics, and per-timebase MCU↔FPGA bus captures ("FPGA explained").
   Pinout diff vs the Atlan4 project and flashing routes: FPGA_NOTES.md §pecostm32-RE.
 
+## Local bench data and host tools (added 2026-07-19)
+
+- `bench/` (untracked, self-gitignored via `bench/.gitignore`) — data off the scope, kept
+  out of the source tree: `screenshots/` (the numbered on-scope BMPs referenced in
+  PORT_AUDIT/FPGA_NOTES bench passes) and `acqprobe/<date-conditions>/` capture runs
+  (`acqprobe_*.txt` + `ringdump_*.bin` pairs; the on-scope probe overwrites its two files
+  at SD root each run, so copies get renamed per run). Never commit bench data.
+- `tools/acqprobe_analyze.py` — host-side analyzer for those runs (rates, ring-wrap,
+  re-read determinism, seam scan, `--csv` export); findings land in FPGA_NOTES §capture
+  geometry. The saved EEVBlog thread reference also moved to repo root
+  (`EEVBlog_FNIRSI_1014D_port.html`, gitignored).
+
 ## Key documents
 
 - **`PORT_AUDIT.md`** — 2026-07-09 full audit of the graft: method, verified-good list,
