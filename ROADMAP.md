@@ -194,9 +194,14 @@ bitstream (deeper/settable capture via 0x0B/0x0C) is a separate track (items 16�
     after a `0x1F` pointer write is stale (discard it); raw dump 0.30–0.35 µs/sample ≈
     10× the standard path ⇒ ~500–900 raw-window captures/s feasible vs the measured
     90–128/s standard cycle; arm-only 21 k/s (1 µs/div) / 3.8 k/s (100 ns, 0x28-path
-    overhead) / 295/s (100 µs, fill-bound ≈ 3345 samples ≈ the fw1 +3345 constant).
-    Remaining: post-trigger fill boundary — one driven run (floating-probe hum at
-    2–10 ms/div); FPGA_NOTES §capture geometry. Follow-ups queued: per-run directory +
+    overhead) / 295/s (100 µs, fill-bound). **Second run 2026-07-19** (driven finger-hum,
+    `bench/acqprobe/2026-07-19-trigger-probe/`) **closed the post-trigger fill boundary**:
+    each capture writes one contiguous fresh block from a fixed ring start (~0) through the
+    trigger (910 pre-trigger samples / 750 on-screen ⇒ trigger at 25 % width) to a variable
+    stop, leaving a 680–1480-sample unwritten gap past the display's right edge; post-trigger
+    fresh ≈ 2507 (finger held) — the ≈2500 estimate confirmed to the sample, and the earlier
+    "3345 = fill" guess retracted (it is only the fw1 display offset). FPGA_NOTES §capture
+    geometry. Follow-ups queued: per-run directory +
     unique filenames on the SD side (the probe overwrites its two files at SD root —
     fine for a probe, wrong for a future "save raw capture" feature; user request
     2026-07-19), and richer host export off `ringdump.bin` (analyzer `--csv` exists;
@@ -220,9 +225,10 @@ bitstream (deeper/settable capture via 0x0B/0x0C) is a separate track (items 16�
     a query) comes later. (a) *n-th-edge display anchor*: count edges from the hardware
     trigger in software (extend the `scope_process_trigger` scan) and anchor the display
     there — works within the captured window today. (b) *Window offset*: `0x1F` can start the
-    read after the trigger point, but on stock the *proven* post-trigger data is only
-    +750/ADC — the 2026-07-19 probe run points at ≈2500 (FPGA_NOTES §capture geometry;
-    one driven run closes it); replies beyond the cap need a slower sample rate —
+    read after the trigger point, and the 2026-07-19 driven run **confirmed ≈2500
+    post-trigger samples per ADC** (2507 measured, finger held; FPGA_NOTES §capture geometry)
+    plus a 680–1480-sample never-overwritten gap past screen-right; replies beyond that cap
+    need a slower sample rate —
     or the Atlan4 bitstream's settable trigger placement (0x0B pretrigger ⇒ mostly-post-trigger
     records), which is the clean fix on the FPGA-migration track. (c) *Software hold-off*:
     delay re-arming (`fpga_do_conversion` timing is MCU-controlled) — ms-precision, fine for

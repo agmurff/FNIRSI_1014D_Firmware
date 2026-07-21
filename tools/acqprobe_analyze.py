@@ -6,7 +6,10 @@ Acquisition probe (scope_do_acquisition_probe() in scope_functions.c; formats
 documented there and in FPGA_NOTES.md "Stock-FPGA capture geometry") and answers
 the capture-geometry questions: real capture/readout rates, where the FPGA sample
 ring wraps, whether re-reads at the same read pointer are deterministic, raw
-trigger-address statistics, and any post-trigger seam visible in the data.
+trigger-address statistics, any post-trigger seam visible in the data, and — on a
+driven run (a signal on screen) — the capture fill geometry: it folds the ring back
+into one image, locates the unwritten gap the writer leaves, and splits the fresh
+block into pre-/post-trigger depth at the raw 0x14 pointer.
 
 Usage:
   tools/acqprobe_analyze.py bench/acqprobe/<run-dir>          # analyze whole run
@@ -137,6 +140,46 @@ def seam_scan(b, binsize=32):
             for i in ranked[:3]]
 
 
+def build_ring(b, rawdump, n=4096):
+    """Fold the >n-sample dump back into one n-entry ring image (sample 0 = the stale
+    pipeline byte, so start at k=1). rawdump is the raw 0x14 pointer = ring start."""
+    ring = [None] * n
+    for k in range(1, len(b)):
+        ra = (rawdump + k) % n
+        if ring[ra] is None:
+            ring[ra] = b[k]
+    return [v if v is not None else 128 for v in ring]
+
+
+def longest_flat_run(ring, band=6):
+    """Longest circular run of near-constant samples (max-min <= band) — the unwritten
+    gap the writer leaves behind. Returns (start, length, level). O(n) sliding window."""
+    from collections import deque
+    n = len(ring)
+    arr = ring + ring                       # unroll the circle once
+    hi, lo = deque(), deque()               # monotonic max/min index queues
+    best_len, best_start = 0, 0
+    i = 0
+    for j in range(len(arr)):
+        while hi and arr[hi[-1]] <= arr[j]:
+            hi.pop()
+        hi.append(j)
+        while lo and arr[lo[-1]] >= arr[j]:
+            lo.pop()
+        lo.append(j)
+        while arr[hi[0]] - arr[lo[0]] > band:
+            i += 1
+            if hi[0] < i:
+                hi.popleft()
+            if lo[0] < i:
+                lo.popleft()
+        run = j - i + 1
+        if run <= n and run > best_len:
+            best_len, best_start = run, i
+    level = sum(arr[best_start:best_start + best_len]) / best_len if best_len else 0
+    return best_start % n, best_len, level
+
+
 def analyze(binpath, txtpath, csvpath=None):
     dump = parse_bin(binpath)
     info = parse_txt(txtpath) if txtpath and txtpath.exists() else {}
@@ -245,6 +288,47 @@ def analyze(binpath, txtpath, csvpath=None):
         cands = seam_scan(b)
         txt = "  ".join("@%d step %.2f (%.1fx median)" % c for c in cands)
         print("  [%d] %s" % (i, txt))
+
+    # --- capture fill geometry: locate the unwritten gap, derive pre/post-trigger depth ---
+    # Needs a signal on screen (a driven run). Folds the highest-variance ADC block back
+    # into a ring image, finds the flat (unwritten) gap, and splits fresh data at the raw
+    # 0x14 trigger pointer. The fw1 path shows the trigger 750 samples into the display
+    # (display start = raw-750), so 750 of the pre-trigger fresh samples are on-screen.
+    print("capture fill geometry (needs a signal on screen; a flat input just reads as one gap):")
+    if dump["samples"] < 4096:
+        print("  dump is < 4096 samples/block - cannot fold a full ring; skipped")
+    else:
+        n = 4096
+        sig = max(range(min(4, dump["blocks"])), key=lambda i: block_stats(dump["data"][i])[3])
+        sd_sig = block_stats(dump["data"][sig])[3]
+        ring = build_ring(dump["data"][sig], dump["rawdump"], n)
+        gstart, glen, glevel = longest_flat_run(ring)
+        raw_ptr = dump["rawdump"] % n
+        fw1 = (info.get("fw_fpga") == 1) if info else False
+        disp_start = (dump["rawdump"] - 750) % n if fw1 else None
+        if sd_sig < 5:
+            print("  block [%d] sd %.1f - no signal in this capture; the fresh/unwritten split needs"
+                  % (sig, sd_sig))
+            print("  a run with something on screen (finger/hum at 2-10 ms/div, probes floating)")
+        elif glen >= int(0.9 * n) or glen < 100:
+            print("  block [%d] sd %.1f, longest flat run %d - no single unwritten gap; ring looks"
+                  % (sig, sd_sig, glen))
+            print("  fully written this capture (or the signal never went flat enough to mark the gap)")
+        else:
+            gend = (gstart + glen) % n
+            pre = (raw_ptr - gend) % n
+            post = (gstart - raw_ptr) % n
+            print("  signal block [%d] (sd %.1f); unwritten gap = ring[%d..%d] length %d, held ~%d"
+                  % (sig, sd_sig, gstart, gend, glen, glevel))
+            print("  fresh block = %d samples, ring %d -> (trigger) -> %d" % (n - glen, gend, gstart))
+            print("  raw 0x14 trigger at ring %d%s" % (raw_ptr,
+                  (" ; display window ring %d..%d (raw-750)" % (disp_start, (disp_start + info.get("samplecount", 3000)) % n)) if fw1 else ""))
+            onscreen = " (%d on-screen, trigger at ~%d%% width)" % (750, int(100 * 750 / info.get("samplecount", 3000))) if fw1 and pre >= 750 else ""
+            print("  -> pre-trigger  fresh = %d samples%s" % (pre, onscreen))
+            print("  -> post-trigger fresh = %d samples" % post)
+            print("  -> the %d-sample gap sits past the display's right edge; the writer never"
+                  % glen)
+            print("     overwrites it within a capture (safe scratch / serial-reply headroom)")
 
     if csvpath:
         with open(csvpath, "w") as f:

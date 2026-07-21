@@ -92,10 +92,10 @@ Atlan4's 35-entry `timeperdiv` space: indices 0–10 = "long" (50 s/div … 20 m
 
 Derived while revisiting the EEVBlog multi-sampling idea; read out of
 `scope_acquire_trace_data()` / `fpga_read_sample_data()` plus pecostm32's bus captures,
-then measured on hardware with the acquisition probe below (first run 2026-07-19, no
-probes attached: data `bench/acqprobe/2026-07-19-no-probes/`, analyzer
-`tools/acqprobe_analyze.py`). Only the exact post-trigger fill boundary still needs a
-driven run.
+then measured on hardware with the acquisition probe below (runs 2026-07-19: no probes
+attached in `bench/acqprobe/2026-07-19-no-probes/`, then a driven finger-hum set in
+`bench/acqprobe/2026-07-19-trigger-probe/`; analyzer `tools/acqprobe_analyze.py`). The
+driven run closed the last open item — the post-trigger fill boundary — below.
 
 - **Trigger is a digital comparator** on the ADC sample stream (level = one 8-bit ADC code
   via `0x17`, edge `0x16`, source `0x15`). Trigger time is therefore quantized to the
@@ -119,22 +119,33 @@ driven run.
   once the `0x0A` flag is set — the writer stops, reads don't disturb it, multi-pass
   readout is safe. A disabled channel's ADCs keep sampling too (ch2-off dumps returned
   live data on 0x22/0x23): all four rings are always available.
-- **Post-trigger fill depth — narrowed 2026-07-19, one driven run from closed**: the
-  `0x0A` flag is "triggered/buffer full" and the fixed −750 read start proves ≥750
-  per-ADC post-trigger samples. First-run measurements add: at 100 µs/div the arm→flag
-  time is 3.39 ms ≈ **3345 samples at 1 MSa/s + MCU overhead — numerically the fw1
-  translation constant** (`+3345` ≡ −751 mod 4096), and the raw 0x14 address under
-  auto+no-signal clusters at ~802–813 counts at both 1 µs and 100 µs per div (⇒ the
-  auto latch fires a rate-independent ~800 *samples* after arm; 100 ns/div clusters
-  wider, ~1000–1460). Together these suggest one auto capture writes ~3345 samples from
-  arm and stops, putting the implied post-trigger fill at ≈2500 samples (~62 % of the
-  ring) — the unread headroom would be mostly *post*-trigger record, exactly what the
-  serial-reply window wants (ROADMAP 29). Open inputs couldn't localize the fresh/stale
-  seam to confirm it (no waveform to make the boundary visible; candidate steps
-  disagreed across the four ADCs). **Closing run:** floating-probe mains hum at
-  2–10 ms/div → run the probe → the analyzer's seam scan reads the boundary directly.
-  `0x0E`'s large values (e.g. 411100 at 10 ns/div) still look like the auto-mode
-  trigger timeout, not a fill count (matches the Slovak comment in
+- **Post-trigger fill depth — CLOSED 2026-07-19 (driven finger-hum run)**: two 5 ms/div
+  captures with a finger on the CH1 tip (`bench/acqprobe/2026-07-19-trigger-probe/`,
+  `tt5ms` = finger held steady, `5ms` = noisy contact) fold back into a ring image that
+  shows exactly one contiguous *unwritten gap* — the writer does **not** cover the whole
+  ring. Mechanism: each arm the write head starts at a **fixed** ring position (~0),
+  fills forward through the trigger to a **variable** stop, and leaves `[stop … 4096]`
+  untouched (that region reads back as whatever it held before — 128 baseline or 0 rail —
+  which is how the gap is visible). Both runs agree on the fixed parts and the analyzer's
+  `capture fill geometry` section now reports them:
+    - raw `0x14` trigger at ring **911**, display window ring 161…3161 (= raw − 750).
+    - **pre-trigger fresh = 910 samples**, of which **750 are on-screen** → the trigger
+      sits at 25 % of the 3000-sample window. The fw1 `−750` constant *is* the on-screen
+      pre-trigger depth; the fresh block's leading edge (ring ~0) is fixed capture to
+      capture.
+    - **post-trigger fresh ≈ 2507** samples (finger held) — **the ≈2500 estimate
+      confirmed to the sample**; the noisy-contact run filled less (1705) and its gap
+      grew to match, so the *fill length is trigger-timing dependent* in auto mode: a
+      clean, promptly-satisfied trigger fills ~2500 post; a marginal one fills less.
+    - **unwritten gap = 679** samples (held run) up to **1481** (noisy), sitting just past
+      the display's right edge and never overwritten within a capture.
+  So the unread headroom is indeed mostly *post*-trigger record plus a several-hundred-
+  sample never-touched gap — exactly what the serial-reply window wants (ROADMAP 29).
+  **Correction to the first-run guess:** the `3345` is only the fw1 display-offset
+  constant (4096 − 751), *not* a fill length; the no-probe "arm→flag ≈ 3345 samples at
+  100 µs/div" correspondence was coincidental — the actual total fresh fill here varies
+  ~2650–3420. `0x0E`'s large values (e.g. 411100 at 10 ns/div) still look like the
+  auto-mode trigger timeout, not a fill count (matches the Slovak comment in
   `fpga_set_time_base`).
 - **Software trigger re-find already exists**: `scope_process_trigger()` re-locates the
   exact crossing near buffer center (stepping by 2 to stay on one ADC's parity, dodging
