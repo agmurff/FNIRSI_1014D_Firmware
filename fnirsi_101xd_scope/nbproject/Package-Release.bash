@@ -6,15 +6,15 @@
 
 # Macros
 TOP=`pwd`
-CND_PLATFORM=GNU_ARM-Linux
-CND_CONF=Debug
+CND_PLATFORM=GNU-Linux
+CND_CONF=Release
 CND_DISTDIR=dist
 CND_BUILDDIR=build
 CND_DLIB_EXT=so
 NBTMPDIR=${CND_BUILDDIR}/${CND_CONF}/${CND_PLATFORM}/tmp-packaging
 TMPDIRNAME=tmp-packaging
-OUTPUT_PATH=${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/fnirsi_1013d_scope.elf
-OUTPUT_BASENAME=fnirsi_1013d_scope.elf
+OUTPUT_PATH=${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/fnirsi_101xd_scope
+OUTPUT_BASENAME=fnirsi_101xd_scope
 PACKAGE_TOP_DIR=fnirsi1013dscope/
 
 # Functions

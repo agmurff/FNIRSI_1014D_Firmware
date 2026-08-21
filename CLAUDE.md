@@ -15,13 +15,23 @@ there. No RTOS, no libc (`-nostdlib`, hand-written `mem*.s`, tiny `malloc.c`).
 
 **Active branch `atlan4-base`:** the repo root is **Atlan4's much-evolved 1013D fork
 (v1.00o5)** with a **1014D port grafted on**, selected by one build switch in
-`fnirsi_1013d_scope/port_config.h`:
+`fnirsi_101xd_scope/port_config.h` (**dir renamed 2026-08-21** — see the note after the
+bullets):
 
 - `#define PORT_1014D 1` (default) — 1014D: external Si5351 clock gen on PA0/PA1 I²C,
   UART1 key-controller input on PA2/PA3, no touch/RTC/battery.
 - `#define PORT_1014D 0` — 1013D: GT911 touch, DS3231 RTC, battery (guard bugs that gutted
   this variant were fixed 2026-07-09 — PORT_AUDIT.md F3/F4 — but it has never been
   hardware-tested on a 1013D).
+
+**Rename note (2026-08-21):** the project dir is `fnirsi_101xd_scope/` (was
+`fnirsi_1013d_scope/`), with `fnirsi_101xd.bin` / `fnirsi_101xd.ld` /
+`fnirsi_101xd_scope.c/.h` renamed to match — "101xd" = the 1013D/1014D family. Old `1013d`
+names remain, deliberately, in: the historical docs `REVIEW-2026-08-21.md` and `PORT_A.md`,
+the `main`/`PORT_A` branches, pecostm32's three tracked loader trees, all vendor reference
+checkouts, the Verilog top module `fnirsi_1013D` in `fpga/` (Atlan4's design identity), and
+the 1013D-variant runtime SD filename `FNIRSI_1013D_tp_config.bin` (behavior, per the
+no-1013D-changes policy).
 
 The 1014D-specific modules were imported nearly verbatim from **pecostm32's official 1014D
 firmware** and bridged to Atlan4 APIs:
@@ -39,7 +49,7 @@ Deliberately **not** imported: pecostm32's new 1014D FPGA design (stock FPGA `0x
 used; Atlan4 also supports PECO FPGAs `0x1532`/`0x1632` via `fpgasettings.fw_FPGA`), his
 `fnirsi_1014d_scope.c` main, and his USB stack (Atlan4's are kept). The SD bootloader for the
 1014D **is** pecostm32's `fnirsi_1014d_startup`, committed as
-`fnirsi_1013d_scope/bootloader_1014d_base.bin` (hash-verified local rebuild).
+`fnirsi_101xd_scope/bootloader_1014d_base.bin` (hash-verified local rebuild).
 
 History: `main` = pristine pecostm32 1013D upstream; `PORT_A` = first-generation port
 (`port_a.c`, superseded and deleted); `9daa91f` on this branch vendors pristine Atlan4.
@@ -77,8 +87,10 @@ loader, sector 48, expects the scope at sector 92), `fnirsi_1013d_startup_from_s
 (single-stage alternative, flagged unmaintained by upstream itself). None of them builds
 either committed `bootloader_*.bin` and nothing in the active build references them.
 **Never run `make` in these trees**: `fnirsi_1013d_startup_screen`'s post-build step copies
-its loader-only image over the active build's `fnirsi_1013d_scope/dist/.../fnirsi_1013d.bin`
-— a same-named, unbootable-as-scope SD image silently replacing the real artifact.
+its loader-only image over the active build's SD image (it hardcodes
+`../fnirsi_1013d_scope/dist/.../fnirsi_1013d.bin`; since the 2026-08-21 `fnirsi_101xd`
+rename that path no longer exists, so the copy now fails loudly instead of silently
+clobbering — but the trees remain build-nothing-here provenance references).
 
 ## Local bench data and host tools (added 2026-07-19)
 
@@ -128,7 +140,7 @@ Requires `arm-none-eabi-gcc`. NetBeans-generated makefiles; config `Debug` is th
 `Debug` builds).
 
 ```bash
-cd fnirsi_1013d_scope
+cd fnirsi_101xd_scope
 make            # compile → link → objcopy → mksunxi → bootloader overlay via flashfilepacker
 make clean
 ```
@@ -139,9 +151,10 @@ The Makefile echoes `[port_config.h variant: …]` first and `>>> BOOTLOADER: �
 **Never leave a wrong-variant build as the last artifact** — rebuild the intended variant
 last.
 
-Artifacts in `dist/Debug/GNU_ARM-Linux/`: `fnirsi_1013d.bin` (bootable SD image — same
-filename in both variants), `fnirsi_1013d_scope.bin` (scope program only), plus variant-named
-copies (`fnirsi_1014d*.bin` on 1014D builds).
+Artifacts in `dist/Debug/GNU_ARM-Linux/`: `fnirsi_101xd.bin` (bootable SD image —
+variant-neutral filename, both variants), `fnirsi_101xd_scope.bin` (scope program only), plus
+variant-named copies (`fnirsi_1014d*.bin` or `fnirsi_1013d*.bin`; the other variant's stale
+copies are deleted on each build, so the copies present always match the last build).
 
 Gotchas:
 - `mksunxi`/`flashfilepacker` are opaque committed host binaries — **no sources in this
@@ -162,12 +175,12 @@ Gotchas:
 
 The user builds on this Linux server and flashes from a Windows laptop (sunxi-fel / SD).
 
-- **SD image:** `dd` `fnirsi_1013d.bin` to the raw SD device at 8 KB offset
+- **SD image:** `dd` `fnirsi_101xd.bin` to the raw SD device at 8 KB offset
   (`bs=1024 seek=8`); FAT32 partition must start ≥1 MB in. Display-config sector for
   per-model LCD timing is SD sector 710 (`configuration_file.txt`).
 - **FEL:** enter it via Factory settings → "FEL firmware update" (direct BROM jump from the
   running scope), or by holding any extra key at power-on → loader menu → F3. Then
-  `sunxi-fel -p write 0x7FFFFFE0 fnirsi_1013d_scope.bin exe 0x80000000` (skips all loaders
+  `sunxi-fel -p write 0x7FFFFFE0 fnirsi_101xd_scope.bin exe 0x80000000` (skips all loaders
   and their FPGA version check). The old sector-710 byte poke does not work with the current
   1014D bootloader.
 - **Factory settings menu** (main menu, last item; added 2026-07-09): Restore defaults /
@@ -186,7 +199,7 @@ The user builds on this Linux server and flashes from a Windows laptop (sunxi-fe
 
 ## Architecture orientation (1014D build)
 
-`main()` in `fnirsi_1013d_scope.c`: clocks/caches → timer/IRQ → SPI flash →
+`main()` in `fnirsi_101xd_scope.c`: clocks/caches → timer/IRQ → SPI flash →
 **`clock_synthesizer_setup()` (Si5351, must precede FPGA init)** → `fpga_init()` → display →
 SD/FatFs → `scope_load_configuration_data()` (Atlan4 SD-sector config) → USB →
 settings to FPGA → `ui_setup_main_screen()` → `uart1_init()` + `sm_init()` → loop:

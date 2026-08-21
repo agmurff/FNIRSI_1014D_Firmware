@@ -81,15 +81,15 @@ build: .build-post
 
 .build-post: .build-impl
 # Add your post 'build' code here...
-	arm-none-eabi-objcopy -O binary dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.elf dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin
+	arm-none-eabi-objcopy -O binary dist/Debug/GNU_ARM-Linux/fnirsi_101xd_scope.elf dist/Debug/GNU_ARM-Linux/fnirsi_101xd_scope.bin
 	
-#	chmod a+rwx dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin
+#	chmod a+rwx dist/Debug/GNU_ARM-Linux/fnirsi_101xd_scope.bin
  
  
 # Fix the BROM header
-	./mksunxi dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin
+	./mksunxi dist/Debug/GNU_ARM-Linux/fnirsi_101xd_scope.bin
 #	
-#	cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin ../../FNIRSI_1013D_Firmware-main/firmware_Atlan_Peco/scope.bin
+#	cp dist/Debug/GNU_ARM-Linux/fnirsi_101xd.bin ../../FNIRSI_1013D_Firmware-main/firmware_Atlan_Peco/scope.bin
 # for bootloader files
 
 # (port) author's personal deploy disabled — these deleted "scope v*.bin" in a sibling repo and
@@ -101,45 +101,45 @@ build: .build-post
 	
 # Skopírovať výsledný binárny súbor s pridanou verziou v názve
 	@echo ">>> VERSION DETECTED: $(VERSION_STRING)"
-#	cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin \
+#	cp dist/Debug/GNU_ARM-Linux/fnirsi_101xd_scope.bin \
 #		"../../FNIRSI_1013D_Firmware-main/firmware_Atlan_Peco/scope $(VERSION_STRING).bin"
 		
-	#- cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin "/media/dk/6741-6DAB/firmware Atlan & PECO/scope $(VERSION_STRING).bin"
-#	- cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin "/media/dk/5229-1580/firmware Atlan & PECO/scope $(VERSION_STRING).bin"
-#	- cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin "/media/dk/524A-7973/firmware Atlan & PECO/scope $(VERSION_STRING).bin"
-#	- cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin "/media/dk/B80A-91C3/firmware Atlan & PECO/scope $(VERSION_STRING).bin"
+	#- cp dist/Debug/GNU_ARM-Linux/fnirsi_101xd_scope.bin "/media/dk/6741-6DAB/firmware Atlan & PECO/scope $(VERSION_STRING).bin"
+#	- cp dist/Debug/GNU_ARM-Linux/fnirsi_101xd_scope.bin "/media/dk/5229-1580/firmware Atlan & PECO/scope $(VERSION_STRING).bin"
+#	- cp dist/Debug/GNU_ARM-Linux/fnirsi_101xd_scope.bin "/media/dk/524A-7973/firmware Atlan & PECO/scope $(VERSION_STRING).bin"
+#	- cp dist/Debug/GNU_ARM-Linux/fnirsi_101xd_scope.bin "/media/dk/B80A-91C3/firmware Atlan & PECO/scope $(VERSION_STRING).bin"
 	
 	@echo ">>> Created: scope $(VERSION_STRING).bin"
 
-	#cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin ../../FNIRSI_1013D_Firmware-main/firmware_Atlan_Peco/scope.bin
-	#cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin "/media/dk/6741-6DAB/firmware Atlan & PECO/scope.bin"
+	#cp dist/Debug/GNU_ARM-Linux/fnirsi_101xd_scope.bin ../../FNIRSI_1013D_Firmware-main/firmware_Atlan_Peco/scope.bin
+	#cp dist/Debug/GNU_ARM-Linux/fnirsi_101xd_scope.bin "/media/dk/6741-6DAB/firmware Atlan & PECO/scope.bin"
 
-#	chmod a+rwx dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin
-#	chmod a+rwx dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin
+#	chmod a+rwx dist/Debug/GNU_ARM-Linux/fnirsi_101xd_scope.bin
+#	chmod a+rwx dist/Debug/GNU_ARM-Linux/fnirsi_101xd.bin
 
 
 # SD card package: start from the committed bootloader base (SPL + scope loader), then overlay the
-# freshly-built scope into it so fnirsi_1013d.bin is standalone-bootable and can be dd'd to SD.
+# freshly-built scope into it so fnirsi_101xd.bin is standalone-bootable and can be dd'd to SD.
 # Two variants:
 #   PORT_1014D (1014D) -> bootloader_1014d_base.bin, overlay at 0x8000
 #   !PORT_1014D (1013D) -> bootloader_base.bin (Atlan4 v1.00o5), overlay at 0x5BC00
 	$(eval BOOTLOADER_BASE:=$(shell grep -q 'PORT_1014D 1' port_config.h && echo bootloader_1014d_base.bin || echo bootloader_base.bin))
 	$(eval BOOTLOADER_OFFSET:=$(shell grep -q 'PORT_1014D 1' port_config.h && echo 0x8000 || echo 0x5BC00))
 	@echo ">>> BOOTLOADER: $(BOOTLOADER_BASE) at offset $(BOOTLOADER_OFFSET)"
-	cp $(BOOTLOADER_BASE) dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin
-	./flashfilepacker -o dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin -i dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin -l $(BOOTLOADER_OFFSET)
+	cp $(BOOTLOADER_BASE) dist/Debug/GNU_ARM-Linux/fnirsi_101xd.bin
+	./flashfilepacker -o dist/Debug/GNU_ARM-Linux/fnirsi_101xd.bin -i dist/Debug/GNU_ARM-Linux/fnirsi_101xd_scope.bin -l $(BOOTLOADER_OFFSET)
 
 # Variant-named copies so you always know which build you're flashing.
-# Skipped for the 1013D variant where the prefix equals the base name (cp onto itself fails).
+# The base name is variant-neutral (fnirsi_101xd) since the 2026-08-21 rename, so both
+# variants get copies.
 	$(eval VARIANT_PREFIX:=$(shell grep -q 'PORT_1014D 1' port_config.h && echo fnirsi_1014d || echo fnirsi_1013d))
-	@if [ "$(VARIANT_PREFIX)" != "fnirsi_1013d" ]; then \
-		cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin dist/Debug/GNU_ARM-Linux/$(VARIANT_PREFIX)_scope.bin; \
-		cp dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin dist/Debug/GNU_ARM-Linux/$(VARIANT_PREFIX).bin; \
-		echo ">>> Also: dist/Debug/GNU_ARM-Linux/$(VARIANT_PREFIX)_scope.bin + $(VARIANT_PREFIX).bin"; \
-	fi
+	rm -f dist/Debug/GNU_ARM-Linux/fnirsi_1013d*.bin dist/Debug/GNU_ARM-Linux/fnirsi_1014d*.bin
+	cp dist/Debug/GNU_ARM-Linux/fnirsi_101xd_scope.bin dist/Debug/GNU_ARM-Linux/$(VARIANT_PREFIX)_scope.bin
+	cp dist/Debug/GNU_ARM-Linux/fnirsi_101xd.bin dist/Debug/GNU_ARM-Linux/$(VARIANT_PREFIX).bin
+	@echo ">>> Also: dist/Debug/GNU_ARM-Linux/$(VARIANT_PREFIX)_scope.bin + $(VARIANT_PREFIX).bin"
 
 # Auto load firmware with FEL
-#	sudo ./dist/Debug/GNU_ARM-Linux/sunxi-fel -p write 0x7FFFFFE0 dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin exe 0x80000000
+#	sudo ./dist/Debug/GNU_ARM-Linux/sunxi-fel -p write 0x7FFFFFE0 dist/Debug/GNU_ARM-Linux/fnirsi_101xd_scope.bin exe 0x80000000
 
 
 

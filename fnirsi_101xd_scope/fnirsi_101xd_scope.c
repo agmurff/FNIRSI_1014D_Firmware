@@ -17,7 +17,7 @@
 #include "power_and_battery.h"
 #include "DS3231.h"
 
-#include "fnirsi_1013d_scope.h"
+#include "fnirsi_101xd_scope.h"
 #include "display_lib.h"
 #include "scope_functions.h"
 #include "statemachine.h"

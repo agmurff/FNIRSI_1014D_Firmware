@@ -2,7 +2,7 @@
 
 Consolidated from code spelunking 2026-07-09. The authoritative loader source for the
 current 1014D chain is vendored at `FNIRSI_1014D_Firmware/fnirsi_1014d_startup/` (pecostm32);
-the committed `fnirsi_1013d_scope/bootloader_1014d_base.bin` is a hash-verified local rebuild
+the committed `fnirsi_101xd_scope/bootloader_1014d_base.bin` is a hash-verified local rebuild
 of it (re-verified 2026-08-21: byte-identical to our rebuild of his source in the vendor
 tree's `dist/`; NOT bit-identical to the binary pecostm32 originally committed — different
 toolchain, same source).
@@ -88,9 +88,9 @@ machine level. If the byte contract is ever ported to the 1014D loader, redeclar
 ## Self-update / recovery paths (no card swapping)
 
 - **USB mass storage** exposes the raw card from sector 0 → from a host,
-  `dd if=fnirsi_1013d.bin of=<usb-disk> bs=1024 seek=8` re-flashes the whole boot image.
+  `dd if=fnirsi_101xd.bin of=<usb-disk> bs=1024 seek=8` re-flashes the whole boot image.
 - **FEL**: hold a key at power-on → F3, then
-  `sunxi-fel -p write 0x7FFFFFE0 fnirsi_1013d_scope.bin exe 0x80000000` (unpacked scope bin).
+  `sunxi-fel -p write 0x7FFFFFE0 fnirsi_101xd_scope.bin exe 0x80000000` (unpacked scope bin).
 - Last resort: remove SD → BROM boots the stock firmware from SPI NOR.
 
 ## Atlan4's bootloader source (partial) — lineage confirmed
@@ -119,7 +119,7 @@ byte handling, keep UART keys instead of touch.
 Findings 2026-07-10 (Atlan4 repo probed via GitHub tree API + selective raw fetches, no
 clone):
 
-- The committed **1013D-variant loader `fnirsi_1013d_scope/bootloader_base.bin`** (from the
+- The committed **1013D-variant loader `fnirsi_101xd_scope/bootloader_base.bin`** (from the
   Atlan4 v1.00o5 dist) **is bootloader v0.8**: strings include "BOOT fw v0.8",
   "PECO firmware", "FNIRSI firmware", "Start FEL mode". The FPGA readmes' *"IMPORTANT:
   Install frst bootloader v0.8 or higer"* requirement is therefore already satisfied

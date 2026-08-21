@@ -3,20 +3,22 @@
 Open replacement firmware for the **FNIRSI 1013D** (tablet) and **1014D** (benchtop)
 oscilloscopes, built on pecostm32's reverse-engineering work and Atlan4's evolved 1013D
 firmware. The active branch is **`atlan4-base`**: one source tree that builds either scope,
-selected by a single switch (`PORT_1014D` in `fnirsi_1013d_scope/port_config.h`, default 1
+selected by a single switch (`PORT_1014D` in `fnirsi_101xd_scope/port_config.h`, default 1
 = 1014D). GPLv3, no warranty — flashing replacement firmware is at your own risk (the stock
 firmware stays in SPI flash as a fallback; see `BOOT_NOTES.md`).
 
-## Why does everything still say "1013D"?
+## Naming: "101xd" = the 1013D/1014D family
 
-This repository is a GitHub fork of `pecostm32/FNIRSI_1013D_Firmware`, renamed. The internal
-names — the `fnirsi_1013d_scope/` project directory, the `fnirsi_1013d.bin` SD image, the
-linker script, most file names — are inherited from that upstream and **kept deliberately**:
-the tree builds *both* scopes from the same sources, and keeping upstream names keeps
-three-way diffs against the reference trees (pecostm32's two repos and Atlan4's) trivial,
-which all the audit work here depends on. A 1014D build additionally emits variant-named
-copies (`fnirsi_1014d*.bin`) and the Makefile echoes `[port_config.h variant: …]` — always
-check it before flashing.
+This repository is a GitHub fork of `pecostm32/FNIRSI_1013D_Firmware`, renamed — and for a
+long time the internals kept upstream's 1013D-only names, which made the tree look like a
+1013D project. Since 2026-08-21 the shared firmware project is **`fnirsi_101xd_scope/`**
+("101xd" is not an official model number — it stands for both scopes) and it builds the
+variant-neutral `fnirsi_101xd.bin` SD image plus variant-named copies
+(`fnirsi_1014d*.bin` / `fnirsi_1013d*.bin`) so you always know what you're flashing; the
+Makefile also echoes `[port_config.h variant: …]` — check it before flashing. Names that
+*deliberately* stay `1013d`: pecostm32's three tracked loader source trees (his provenance,
+his names), and most individual source files inside the project, which keep their upstream
+names so diffs against the reference trees stay trivial.
 
 ## Provenance — a four-way merge
 
@@ -91,18 +93,18 @@ Requires `arm-none-eabi-gcc`. Only the `Debug` config is real (`Release` is a st
 leftover).
 
 ```sh
-cd fnirsi_1013d_scope
+cd fnirsi_101xd_scope
 make          # check the "[port_config.h variant: …]" and ">>> BOOTLOADER: …" lines
 ```
 
-Flash `dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin` to the raw SD device at 8 KB offset
+Flash `dist/Debug/GNU_ARM-Linux/fnirsi_101xd.bin` to the raw SD device at 8 KB offset
 (`dd bs=1024 seek=8`, FAT32 partition starting ≥1 MB in), or load the unpacked
-`fnirsi_1013d_scope.bin` over USB FEL. Full instructions, recovery paths, and the SD sector
+`fnirsi_101xd_scope.bin` over USB FEL. Full instructions, recovery paths, and the SD sector
 map: `CLAUDE.md` (build/load sections) and `BOOT_NOTES.md`.
 
 ## What's in the tree
 
-- `fnirsi_1013d_scope/` — the firmware (both variants; NetBeans makefiles).
+- `fnirsi_101xd_scope/` — the firmware (both variants; NetBeans makefiles).
 - `fpga/` — a self-contained Anlogic TD project retargeting Atlan4's AL3 replacement-FPGA
   design to the stock 1014D board. **Built, never flashed** — read `fpga/README.md` and
   `FPGA_NOTES.md` before going anywhere near it.
@@ -114,7 +116,7 @@ map: `CLAUDE.md` (build/load sections) and `BOOT_NOTES.md`.
 - `fnirsi_1013d_sd_card_bootloader/`, `fnirsi_1013d_startup_screen/`,
   `fnirsi_1013d_startup_from_sd_card/` — pecostm32's 1013D loader sources, tracked for
   provenance only; nothing in the active build uses them. **Never run `make` in them** —
-  one of them overwrites the real build artifact with a loader-only image (`CLAUDE.md`).
+  their post-build steps assume pecostm32's original layout (details in `CLAUDE.md`).
 
 The deep-reference vendor checkouts the docs cite (`Atlan4-1.00o5/`,
 `FNIRSI_1013D_Firmware/`, `FNIRSI_1014D_Firmware/`, `Atlan4-FPGA/`, `pecostm32-RE/`,

@@ -24,7 +24,7 @@ CLEAN_SUBPROJECTS=${CLEAN_SUBPROJECTS_${SUBPROJECTS}}
 
 
 # Project Name
-PROJECTNAME=fnirsi_1013d_scope
+PROJECTNAME=fnirsi_101xd_scope
 
 # Active Configuration
 DEFAULTCONF=Debug

@@ -292,7 +292,7 @@ What the vendored AL3 project answers:
   for AL3: CH341 + 3.3 V converter on the FPGA's SPI flash.
 - **"IMPORTANT: Install frst bootloader v0.8 or higer" (the readme) is now explained**:
   Atlan4's bootloader v0.8 — which **is** our committed 1013D-variant
-  `fnirsi_1013d_scope/bootloader_base.bin` (strings say "BOOT fw v0.8") — still *contains*
+  `fnirsi_101xd_scope/bootloader_base.bin` (strings say "BOOT fw v0.8") — still *contains*
   the `fpga_check_ready()` 0x1432 spin in both its SPL and main stages, but **both copies
   are dead code: zero call sites** (verified by full disassembly + caller search,
   BOOT_NOTES.md). Older loaders (Atlan4 fw0.02–0.04 and pecostm32's

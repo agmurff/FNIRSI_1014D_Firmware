@@ -6,7 +6,7 @@ Bare-metal firmware for the Allwinner F1C100s (ARM926EJ-S, 32 MB DRAM at `0x8000
 No RTOS, no libc (`-nostdlib`). Built with `arm-none-eabi-gcc`.
 
 - **Current branch:** `atlan4-base` (the active port work; `main` tracks pristine upstream 1013D)
-- **Scope app:** `fnirsi_1013d_scope/` — the only project that matters.
+- **Scope app:** `fnirsi_101xd_scope/` — the only project that matters.
 - **1014D modules:** `clock_synthesizer.c/.h` (Si5351 I²C on PA0/PA1) + `uart.c/.h` (UART1 key controller on PA2/PA3)
 - **FPGA driver:** `fpga_control.c` — bit-banged parallel bus on Port E.
 - **`CLAUDE.md`** and **`PORT_A.md`** contain exhaustive architecture notes — read them first (`PORT_A.md` is historical/superseded; trust the code).
@@ -18,7 +18,7 @@ No RTOS, no libc (`-nostdlib`). Built with `arm-none-eabi-gcc`.
 ## Build
 
 ```bash
-# From fnirsi_1013d_scope/:
+# From fnirsi_101xd_scope/:
 make            # compile → link → objcopy → mksunxi → flashfilepacker
 make clean
 ```
@@ -27,11 +27,12 @@ Two build variants (set in `port_config.h`):
 - `#define PORT_1014D 1` — 1014D port (default). Si5351 clock gen I²C + UART1 key controller. No touch panel, RTC, or battery.
 - `#define PORT_1014D 0` — pure 1013D build (reproduces upstream Atlan4). GT911 touch panel, DS3231 RTC, battery.
 
-Output: 
-- `dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin` — bootable SD image (always this filename, bootloader depends on variant)
-- `dist/Debug/GNU_ARM-Linux/fnirsi_1013d_scope.bin` — scope firmware only
+Output (names since the 2026-08-21 `fnirsi_101xd` rename):
+- `dist/Debug/GNU_ARM-Linux/fnirsi_101xd.bin` — bootable SD image (variant-neutral filename, bootloader depends on variant)
+- `dist/Debug/GNU_ARM-Linux/fnirsi_101xd_scope.bin` — scope firmware only
 - `dist/Debug/GNU_ARM-Linux/fnirsi_1014d.bin` / `fnirsi_1014d_scope.bin` — variant-named copies (1014D build)
 - `dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin` / `fnirsi_1013d_scope.bin` — variant-named copies (1013D build)
+- The Makefile deletes the *other* variant's stale copies on each build, so the variant-named files present always match the last build.
 
 **⚠️ CRITICAL: Always check the variant before flashing.** The Makefile prints `[port_config.h variant: ...]` at the start and `BOOTLOADER: ...` after build. If those don't match what you intend, stop.
 
@@ -103,7 +104,7 @@ Rationale: valuable Atlan4 changes (acquisition, math, FPGA) are in shared files
 
 ## Gotchas (hard-earned)
 
-- **mksunxi / flashfilepacker Linux ELFs are committed executable (100755) on this branch** since the Atlan4 vendor commit 9daa91f — no chmod needed on a fresh `atlan4-base` checkout (corrected 2026-08-21; the `chmod +x` in `fnirsi_1013d_scope/` only applies on the older branches, `main`/`PORT_A`, which commit them 100644). Fallback is rebuilding from source (`gcc mksunxi.c -o mksunxi && gcc flashfilepacker.c -o flashfilepacker`) — but note the `.c` sources are NOT in this tree; they live in the upstream pecostm32 repos.
+- **mksunxi / flashfilepacker Linux ELFs are committed executable (100755) on this branch** since the Atlan4 vendor commit 9daa91f — no chmod needed on a fresh `atlan4-base` checkout (corrected 2026-08-21; the `chmod +x` in `fnirsi_101xd_scope/` only applies on the older branches, `main`/`PORT_A`, which commit them 100644). Fallback is rebuilding from source (`gcc mksunxi.c -o mksunxi && gcc flashfilepacker.c -o flashfilepacker`) — but note the `.c` sources are NOT in this tree; they live in the upstream pecostm32 repos.
 - **`strcpy` in this tree is NOT ISO** — the linked implementation is the C function in `scope_functions.c` (returns a pointer **at** the copied terminator; both Atlan4 and the imported UI chain `buffer = strcpy(buffer, …)` on that). `strcpy.s` exists but is **never compiled** (not in the object list) — don't "fix" it and don't add it to the build. CFLAGS carry `-fno-builtin-strcpy` so GCC can't fold calls to ISO dst-return semantics.
 - **Bootloader:** `bootloader_base.bin` (1013D, offset 0x5BC00) and `bootloader_1014d_base.bin` (1014D, offset 0x8000) are committed binaries selected automatically by Makefile from `port_config.h`. The 1014D bootloader is built from `FNIRSI_1014D_Firmware/fnirsi_1014d_startup/`.
 - **GCC 14+ `-fcommon`:** Required in `nbproject/Makefile-Debug.mk` CFLAGS to fix `multiple definition of calibrationsettings`.
@@ -127,7 +128,7 @@ jump), or hold any extra key at power-on → loader menu → F3 ("Running FEL mo
 sector-710 byte poke does NOT work with the current 1014D bootloader (BOOT_NOTES.md). Then:
 
 ```bash
-sudo ./sunxi-fel -p write 0x7FFFFFE0 fnirsi_1013d_scope.bin exe 0x80000000
+sudo ./sunxi-fel -p write 0x7FFFFFE0 fnirsi_101xd_scope.bin exe 0x80000000
 ```
 
 Skips all boot loaders (and their FPGA version handshake). Build is `-O2` (not `-Og`).

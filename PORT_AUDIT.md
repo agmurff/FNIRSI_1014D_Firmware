@@ -12,7 +12,7 @@ Four trees were cross-compared file-by-file and hunk-by-hunk:
 
 | Tree | Path | Role |
 |---|---|---|
-| **W** | `fnirsi_1013d_scope/` (repo root) | the working port |
+| **W** | `fnirsi_101xd_scope/` (repo root) | the working port (named `fnirsi_1013d_scope/` until the 2026-08-21 rename; findings below use whichever name was current when written) |
 | **A4** | `Atlan4-1.00o5/fnirsi_1013d_scope/` | pristine base (also vendored at commit `9daa91f`) |
 | **P14** | `FNIRSI_1014D_Firmware/fnirsi_1014d_scope/` | pecostm32 official 1014D (origin of imports) |
 | **P13** | `FNIRSI_1013D_Firmware/fnirsi_1013d_scope/` | pecostm32 upstream 1013D (context only) |
@@ -57,7 +57,7 @@ deliberate 1014D work — `clock_synthesizer.c/.h` ~51/12 non-blank lines, `menu
   `scope_functions.c` (1014D chrome redraw inside the copy-rect, `ui_draw_grid`,
   `#if !PORT_1014D` around 1013D cursor/measurement chrome), `fpga_control.c`
   (bounded ready-wait: converts a hard hang into a timeout; `tp_i2c_read_status()` skip that
-  fixes the PA2/PA3 UART mux clobber), `variables.h`/`statemachine.h`/`fnirsi_1013d_scope.h`
+  fixes the PA2/PA3 UART mux clobber), `variables.h`/`statemachine.h`/`fnirsi_101xd_scope.h`
   (additive defines/structs; `CHANNELSETTINGS`/`SCOPESETTINGS` 1014D fields appended at the
   **end** of the structs, guarded), `display_lib` (P14 draw functions added), `icons.c`
   (append-only, 0 removals), `ccu_control.h` (UART1 gate/reset bits — bit 21, correct for
@@ -86,7 +86,7 @@ deliberate 1014D work — `clock_synthesizer.c/.h` ~51/12 non-blank lines, `menu
   variant-named artifacts produced. `sm_1014d.o` (65 functions) and `menu_1014d.o`
   (102) fully compiled in the 1014D build and **empty** in the 1013D build (guards after
   includes — the AGENTS.md gotcha is respected).
-- **Bootloader provenance.** `fnirsi_1013d_scope/bootloader_1014d_base.bin` is
+- **Bootloader provenance.** `fnirsi_101xd_scope/bootloader_1014d_base.bin` is
   **md5-identical** to the locally rebuilt
   `FNIRSI_1014D_Firmware/fnirsi_1014d_startup/dist/.../fnirsi_sd_card_bootloader.bin`
   (`a281ab70…`). It differs from the GitHub-committed binary only because ours is a local
@@ -157,7 +157,7 @@ in AGENTS.md is currently false — that build would boot with **no input at all
 ### F4 — 1013D-variant `make` exits with an error at the final packaging step. (MEDIUM)
 
 `Makefile:132-137`: for the 1013D variant `VARIANT_PREFIX=fnirsi_1013d`, so the variant-copy
-becomes `cp fnirsi_1013d_scope.bin fnirsi_1013d_scope.bin` → "same file" → **make error 1**
+becomes `cp fnirsi_101xd_scope.bin fnirsi_101xd_scope.bin` → "same file" → **make error 1**
 (after all real artifacts were already produced). Breaks scripted builds and the "both
 variants build" claim. **Fix recipe:** wrap the two `cp`s in
 `if [ "$(VARIANT_PREFIX)" != "fnirsi_1013d" ]; then …; fi` (or `cp` to a temp name).
@@ -265,7 +265,7 @@ display path recomputes every frame and overwrites it — but keep in mind when 
 (main menu, channel menu, slider, on/off panel — `ui_menu_composite_active()` /
 `ui_redraw_active_menu()` in `menu_1014d.c`) are now redrawn into `displaybuffertmp` at the
 end of `scope_display_trace_data()`'s 1014D chrome pass, and the display gates
-(`fnirsi_1013d_scope.c` main loop + the early return in `scope_display_trace_data()`) let
+(`fnirsi_101xd_scope.c` main loop + the early return in `scope_display_trace_data()`) let
 those states through. Result: traces keep updating live beneath open overlay menus (the main
 loop never stopped acquiring — `enablesampling` is not consulted by the Atlan4 loop), menus
 render flicker-free because they land in the offscreen buffer before the atomic blit, and the
@@ -592,7 +592,7 @@ one **structural** divergence is *when the CPU is busy relative to the capture*:
 - **Ours** is **non-blocking**: `fpga_do_conversion` (`fpga_control.c:609`) returns at
   reset-ready without waiting for the capture; readout is deferred via `display_data_done`, so
   between arm and readout the main loop runs a full `scope_display_trace_data()` framebuffer
-  composite (twice — `scope_functions.c:908` and the loop's `fnirsi_1013d_scope.c:444`) **+
+  composite (twice — `scope_functions.c:908` and the loop's `fnirsi_101xd_scope.c:444`) **+
   UART key poll while the FPGA is armed/capturing.** That high-current, bursty display-bus
   activity, asynchronous to the 200 MSa/s interleave clock, modulates the two ADC phases
   unequally and inflates the even/odd offset. (This is the textbook MCU-ADC app-note rule:
@@ -749,22 +749,22 @@ restore stays `#if PORT_1014D`); it needs testing on real hardware before any cl
 
 ```bash
 # file-by-file classification of the working tree against the three references
-for f in $(ls fnirsi_1013d_scope | grep -E '\.(c|h|s|ld)$'); do ...cmp/diff per tree...; done
+for f in $(ls fnirsi_101xd_scope | grep -E '\.(c|h|s|ld)$'); do ...cmp/diff per tree...; done
 
 # import fidelity
-diff FNIRSI_1014D_Firmware/fnirsi_1014d_scope/user_interface_functions.c fnirsi_1013d_scope/menu_1014d.c
-diff FNIRSI_1014D_Firmware/fnirsi_1014d_scope/statemachine.c            fnirsi_1013d_scope/sm_1014d.c
+diff FNIRSI_1014D_Firmware/fnirsi_1014d_scope/user_interface_functions.c fnirsi_101xd_scope/menu_1014d.c
+diff FNIRSI_1014D_Firmware/fnirsi_1014d_scope/statemachine.c            fnirsi_101xd_scope/sm_1014d.c
 
 # guard truth (F3): bodies gone in both variants
-arm-none-eabi-gcc -E -DNO_STDLIB=1 -I fnirsi_1013d_scope fnirsi_1013d_scope/touchpanel.c | awk '/tp_i2c_setup/,/^}/'
+arm-none-eabi-gcc -E -DNO_STDLIB=1 -I fnirsi_101xd_scope fnirsi_101xd_scope/touchpanel.c | awk '/tp_i2c_setup/,/^}/'
 arm-none-eabi-nm -S build/Debug/GNU_ARM-Linux/touchpanel.o   # 4-byte T symbols
 
 # variant builds (always finish on the 1014D variant!)
-sed -i 's/PORT_1014D 1/PORT_1014D 0/' fnirsi_1013d_scope/port_config.h && make clean && make  # F4 error
-sed -i 's/PORT_1014D 0/PORT_1014D 1/' fnirsi_1013d_scope/port_config.h && make clean && make  # exit 0
+sed -i 's/PORT_1014D 1/PORT_1014D 0/' fnirsi_101xd_scope/port_config.h && make clean && make  # F4 error
+sed -i 's/PORT_1014D 0/PORT_1014D 1/' fnirsi_101xd_scope/port_config.h && make clean && make  # exit 0
 
 # bootloader provenance
-md5sum fnirsi_1013d_scope/bootloader_1014d_base.bin \
+md5sum fnirsi_101xd_scope/bootloader_1014d_base.bin \
        FNIRSI_1014D_Firmware/fnirsi_1014d_startup/dist/Debug/GNU_ARM-Linux/fnirsi_sd_card_bootloader.bin
 ```
 

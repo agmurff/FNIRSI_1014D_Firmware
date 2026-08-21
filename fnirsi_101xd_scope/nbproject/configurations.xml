@@ -14,7 +14,7 @@
       <itemPath>display_lib.h</itemPath>
       <itemPath>ff.h</itemPath>
       <itemPath>ffconf.h</itemPath>
-      <itemPath>fnirsi_1013d_scope.h</itemPath>
+      <itemPath>fnirsi_101xd_scope.h</itemPath>
       <itemPath>font_structs.h</itemPath>
       <itemPath>fpga_control.h</itemPath>
       <itemPath>generator.h</itemPath>
@@ -52,7 +52,7 @@
       <itemPath>display_lib.c</itemPath>
       <itemPath>ff.c</itemPath>
       <itemPath>ffunicode.c</itemPath>
-      <itemPath>fnirsi_1013d_scope.c</itemPath>
+      <itemPath>fnirsi_101xd_scope.c</itemPath>
       <itemPath>font_0.c</itemPath>
       <itemPath>font_2.c</itemPath>
       <itemPath>font_3.c</itemPath>
@@ -92,7 +92,7 @@
                    projectFiles="false"
                    kind="IMPORTANT_FILES_FOLDER">
       <itemPath>Makefile</itemPath>
-      <itemPath>fnirsi_1013d.ld</itemPath>
+      <itemPath>fnirsi_101xd.ld</itemPath>
       <itemPath>test_code</itemPath>
       <itemPath>todo.txt</itemPath>
     </logicalFolder>
@@ -118,9 +118,9 @@
           <commandLine>-x assembler-with-cpp -c -O0 -mcpu='arm926ej-s' -mthumb -Wall -fmessage-length=0</commandLine>
         </asmTool>
         <linkerTool>
-          <output>${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/fnirsi_1013d_scope.elf</output>
+          <output>${CND_DISTDIR}/${CND_CONF}/${CND_PLATFORM}/fnirsi_101xd_scope.elf</output>
           <commandlineTool>arm-none-eabi-gcc</commandlineTool>
-          <commandLine>-T./fnirsi_1013d.ld -nostdlib -lgcc</commandLine>
+          <commandLine>-T./fnirsi_101xd.ld -nostdlib -lgcc</commandLine>
         </linkerTool>
       </compileType>
       <item path="DS3231.c" ex="false" tool="0" flavor2="0">
@@ -161,9 +161,9 @@
       </item>
       <item path="ffunicode.c" ex="false" tool="0" flavor2="0">
       </item>
-      <item path="fnirsi_1013d_scope.c" ex="false" tool="0" flavor2="0">
+      <item path="fnirsi_101xd_scope.c" ex="false" tool="0" flavor2="0">
       </item>
-      <item path="fnirsi_1013d_scope.h" ex="false" tool="3" flavor2="0">
+      <item path="fnirsi_101xd_scope.h" ex="false" tool="3" flavor2="0">
       </item>
       <item path="font_0.c" ex="false" tool="0" flavor2="0">
       </item>
@@ -326,9 +326,9 @@
       </item>
       <item path="ffunicode.c" ex="false" tool="0" flavor2="0">
       </item>
-      <item path="fnirsi_1013d_scope.c" ex="false" tool="0" flavor2="0">
+      <item path="fnirsi_101xd_scope.c" ex="false" tool="0" flavor2="0">
       </item>
-      <item path="fnirsi_1013d_scope.h" ex="false" tool="3" flavor2="0">
+      <item path="fnirsi_101xd_scope.h" ex="false" tool="3" flavor2="0">
       </item>
       <item path="font_0.c" ex="false" tool="0" flavor2="0">
       </item>

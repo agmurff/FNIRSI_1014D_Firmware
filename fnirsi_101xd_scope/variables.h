@@ -9,7 +9,7 @@
 
 #include "types.h"
 #include "font_structs.h"
-#include "fnirsi_1013d_scope.h"
+#include "fnirsi_101xd_scope.h"
 #include "ff.h"
 #include "port_config.h"
 
