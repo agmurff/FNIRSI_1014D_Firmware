@@ -628,6 +628,9 @@ void fpga_do_conversion(void)
   //-- sends 0x29/0x01 then 0x28/0x00 right here. Omitting them left our dual-ADC interleave in a
   //default, unconfigured mode: the leading remaining suspect for our oversized sawtooth. Stock FPGA
   //only (fw_FPGA==1); the PECO fw_FPGA>1 paths keep their own 0x0B/0x0C setup below. (PORT_AUDIT.md F25)
+  //The #if PORT_1014D deliberately leaves the 1013D variant at Atlan4's shipped behavior, even though
+  //pecostm32's 1013D upstream sends 0x28/0x00 unconditionally right here -- no 1013D hardware to test
+  //on (policy 2026-08-21). Candidate fix if a real 1013D shows the <=200ns/div interleave sawtooth.
 #if PORT_1014D
   if(fpgasettings.fw_FPGA == 1)
   {
@@ -1452,21 +1455,22 @@ uint16 fpga_average_trace_data(PCHANNELSETTINGS settings)
     FPGA_PULSE_CLK();
  
     //Read the data CH1 or CH2
+    //No interleave compensation here: the roll-mode 0x24/0x26 averages mix both ADCs so a
+    //per-ADC comp is meaningless, and the old 'timeperdiv >= 29' gate could never be true
+    //on this long-timebase-only path anyway (dead code dropped, REVIEW-2026-08-21)
     datatmp = FPGA_GET_DATA();
-    if (scopesettings.timeperdiv >= 29)
-      datatmp += settings->adc1compensation;
-    
+
     //Check limits
     if (datatmp > 255)  datatmp = 255;
     if (datatmp < 0)    datatmp = 0;
-        
-        
+
+
     data += (uint16)datatmp;
-    
+
     //One read done
     count--;
   }
-  
+
   //Calculate the average and return it
   //data = data / 10;
   //data = (data * multiply) >> VOLTAGE_SHIFTER;
@@ -1499,17 +1503,16 @@ uint16 fpga_average_trace_data_long(PCHANNELSETTINGS settings)
     FPGA_PULSE_CLK();
  
     //Read the data CH1 or CH2
+    //No interleave compensation: same reasoning as fpga_average_trace_data above
     datatmp = FPGA_GET_DATA();
-    if (scopesettings.timeperdiv >= 29)
-      datatmp += settings->adc1compensation;
-    
+
     //Check limits
     if (datatmp > 255)  datatmp = 255;
     if (datatmp < 0)    datatmp = 0;
-        
-        
+
+
     data += (uint16)datatmp;
-    
+
     //One read done
     count--;
   }

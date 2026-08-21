@@ -1618,6 +1618,12 @@ void ui_display_vavg(uint32 ypos, PCHANNELSETTINGS settings)
   //gains about one honest decimal, never more than the field can hold.
   resolution = (((int32)signal_adjusters[settings->samplevoltperdiv] >> VOLTAGE_SHIFTER) * vcd->mul_factor) / 32;
 
+  //Match the frozen-zoom rescale applied to volts above (F28 follow-up)
+  if(settings->displayvoltperdiv != settings->samplevoltperdiv)
+  {
+    resolution = (int32)(((int64)resolution * vertical_scaling_factors[settings->displayvoltperdiv][settings->samplevoltperdiv]) / 10000);
+  }
+
   ui_print_value(ypos, (int32)volts, vcd->volt_scale, "V", 1, resolution);
 }
 
@@ -1795,6 +1801,13 @@ void ui_display_voltage(uint32 ypos, PCHANNELSETTINGS settings, int32 value, uin
   //One ADC code expressed in the same fixed-point units as 'volts', so ui_print_value can cap the
   //decimals to what the 8-bit ADC actually resolves at this range (PORT_AUDIT F28)
   int32 resolution = ((int32)signal_adjusters[settings->samplevoltperdiv] >> VOLTAGE_SHIFTER) * vcd->mul_factor;
+
+  //Match the frozen-zoom rescale applied to volts above, or the decimal cap is off by the
+  //zoom ratio and the readout prints fabricated (or hides honest) decimals (F28 follow-up)
+  if(settings->displayvoltperdiv != settings->samplevoltperdiv)
+  {
+    resolution = (int32)(((int64)resolution * vertical_scaling_factors[settings->displayvoltperdiv][settings->samplevoltperdiv]) / 10000);
+  }
 
   //Format the voltage for displaying
   ui_print_value(ypos, volts, vcd->volt_scale, "V", signedvalue, resolution);

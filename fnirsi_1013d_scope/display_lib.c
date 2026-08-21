@@ -1481,6 +1481,10 @@ void display_decimal(uint32 xpos, uint32 ypos, int32 value)
 
 //----------------------------------------------------------------------------------------------------------------------------------
 
+//NB: the int8 parameter sign-extends character codes >= 128 ((uint16)text becomes 0xFF80+),
+//so those glyphs fail the font range check and are silently dropped -- e.g. the 1013D
+//generator menu's degree sign (menu.c passes 176). Pre-existing Atlan4 behavior, left as-is
+//per the keep-1013D-untouched policy (2026-08-21); a uint8 parameter would fix it.
 void display_character(uint32 xpos, uint32 ypos, int8 text)
 {
   //Set the positions for drawing the text

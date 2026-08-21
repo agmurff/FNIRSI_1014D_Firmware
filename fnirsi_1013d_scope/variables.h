@@ -526,7 +526,9 @@
 // Sampling system
 
 #define MAX_SAMPLE_BUFFER_SIZE            16382//3000//4095
-#define UINT32_SAMPLE_BUFFER_SIZE         (MAX_SAMPLE_BUFFER_SIZE / 4)
+//Round up: byte-view loops and file I/O run to MAX_SAMPLE_BUFFER_SIZE (16382), so a
+//floored /4 (4095 words = 16380 bytes) left every trace array 2 bytes short of them
+#define UINT32_SAMPLE_BUFFER_SIZE         ((MAX_SAMPLE_BUFFER_SIZE + 3) / 4)
 
 #define SAMPLE_COUNT                      MAX_SAMPLE_BUFFER_SIZE //samplecount  10000
 #define SAMPLES_PER_ADC                   (SAMPLE_COUNT / 2)        //nofsamples 5000

@@ -1143,6 +1143,11 @@ uint32 scope_do_baseline_calibration(void)
   fpga_set_channel_voltperdiv(&scopesettings.channel2);
   fpga_set_channel_offset(&scopesettings.channel2);
   fpga_set_sample_rate(scopesettings.samplerate);
+
+  //Also restore the 0x0E capture window: on the stock FPGA (fw_FPGA==1) nothing re-sends
+  //it per arm (pecostm32 did, Atlan4 moved it to the fw>1 reset window), so without this
+  //the ~2MSa/s cal value would linger until the next timebase change (REVIEW-2026-08-21)
+  fpga_set_time_base(scopesettings.timeperdiv);
   
   //Show the new settings
   scope_acqusition_settings(0);
@@ -2005,7 +2010,12 @@ void scope_do_acquisition_probe(void)
       }
     }
 
-    fpga_read_sample_data(&scopesettings.channel1, data);
+    //Gate on enable like the standard path this phase mirrors (scope_acquire_trace_data),
+    //so the analyzer's per-enabled-channel overhead math stays honest
+    if(scopesettings.channel1.enable)
+    {
+      fpga_read_sample_data(&scopesettings.channel1, data);
+    }
 
     if(scopesettings.channel2.enable)
     {
@@ -3704,7 +3714,9 @@ void scope_display_trace_data(void)
     //Set x-y mode display trace color
     display_set_fg_color(XYMODE_COLOR);
 
-    uint32 index = disp_trigger_index - 315;
+    //Floor the start: a trigger index below 315 would wrap the uint32 and read up to
+    //315 bytes below the trace buffers (garbage pixels; guard added REVIEW-2026-08-21)
+    uint32 index = (disp_trigger_index > 315) ? (disp_trigger_index - 315) : 0;
     uint32 last = index + 730;
 
     //Need two samples per channel
@@ -6960,7 +6972,8 @@ void scope_create_thumbnail(PTHUMBNAILDATA thumbnaildata)
   else
   { //X-Y MODE
     //Use less samples to not overwrite the second buffer
-    uint32 index = disp_trigger_index - 317;
+    //Floor the start like the main X-Y path: no wrap below the buffers
+    uint32 index = (disp_trigger_index > 317) ? (disp_trigger_index - 317) : 0;
     uint32 last = index + 728;
 
     uint8 *buffer1 = thumbnaildata->channel1data;   
@@ -8267,6 +8280,15 @@ void scope_restore_config_data(void)
   fpgasettings.gen_phase        = *ptr++; 
 
   fpgasettings.totalsamples           = *ptr++;
+
+  //Clamp to the trace buffer capacity: the CDC 'f' debug command used to let an
+  //oversized value into the config sector, turning every acquisition into a buffer
+  //overrun that persisted across power cycles (REVIEW-2026-08-21)
+  if(fpgasettings.totalsamples > MAX_SAMPLE_BUFFER_SIZE)
+  {
+    fpgasettings.totalsamples = MAX_SAMPLE_BUFFER_SIZE;
+  }
+
   fpgasettings.settriggerpoint        = *ptr++;
   fpgasettings.en_holdoff_trigger     = *ptr++;
   fpgasettings.value_holdoff_trigger  = *ptr++;

@@ -207,6 +207,11 @@ def analyze(binpath, txtpath, csvpath=None):
         extras.append("saved trigger mode %s" % info.get("saved_triggermode"))
         print("          " + ", ".join(extras))
 
+        # Firmware note: probe builds before 2026-08-21 read CH1 unconditionally (only CH2
+        # was gated on enable), so for a pre-fix run with CH1 OFF the true divisor is
+        # (1 + ch2_enable) * samplecount, not this one. All bench runs to date had CH1
+        # enabled, where both formulas agree; post-fix firmware gates both channels like
+        # the standard acquisition path (REVIEW-2026-08-21).
         nch = (1 if info.get("ch1_enable") else 0) + (1 if info.get("ch2_enable") else 0)
         rsamples = nch * info.get("samplecount", 3000)
         a_l, a_ms = info.get("phase_a_loops", 0), info.get("phase_a_ms", 0)

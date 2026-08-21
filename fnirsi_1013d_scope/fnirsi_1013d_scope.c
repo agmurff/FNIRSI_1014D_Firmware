@@ -450,12 +450,16 @@ int main(void)
 
     //--------------------------------------------------------------------------
     
+#if !PORT_1014D
     //READ and show RTC time
+    //1013D only: readtime() is a stub on the 1014D, and a config sector written by a
+    //1013D with the RTC enabled would otherwise leave a 1014D black-filling this rect
+    //over the P14 top bar every 500 ticks with no on-device way to turn it off
     if (!(timerRTC)&&(onoffRTC))
     {
       timerRTC=500;
       //Reading time and date of DS3231
-      readtime(); 
+      readtime();
       //Set color the background
       display_set_fg_color(BLACK_COLOR);
       //Fill the time background //x , y , sirka, vyska
@@ -465,6 +469,7 @@ int main(void)
       display_set_font(&font_2);
       display_text(TIME_TEXT_XPOS, TIME_TEXT_YPOS, buffertime);
     }
+#endif
     
     //--------------------------------------------------------------------------
   }//end While(1);

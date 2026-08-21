@@ -376,7 +376,10 @@ DWORD get_fattime (void)
            (DWORD)minute << 5 |
            (DWORD)tm_sec >> 1;
 #else
-    return 0;
+    //No RTC on the 1014D: return the same fixed valid timestamp as pecostm32's official
+    //1014D firmware (2020-03-22 22:48:58) — 0 has month/day 0, an invalid FAT date that
+    //PCs render as nonsense on every file the scope writes
+    return 1349957149;
 #endif
   }
 

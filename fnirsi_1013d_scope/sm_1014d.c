@@ -288,38 +288,47 @@ void sm_handle_time_volt_cursor(void)
       switch(scopesettings.selectedcursor)
       {
         case CURSOR_TIME_LEFT:
-          //Adjust the setting based on the set speed value
-          scopesettings.timecursor1position += speedvalue;
+        {
+          //Adjust in a signed local: the field is uint16 here (int16 in pecostm32), so a
+          //fast move below the stop would wrap past both limit checks and jump the cursor
+          int32 newpos = (int32)scopesettings.timecursor1position + speedvalue;
 
           //Limit it on the trace portion of the screen and the right time cursor
-          if(scopesettings.timecursor1position < 6)
+          if(newpos < 6)
           {
             //So not below the left side of the region
-            scopesettings.timecursor1position = 6;
+            newpos = 6;
           }
-          else if(scopesettings.timecursor1position >= scopesettings.timecursor2position)
+          else if(newpos >= scopesettings.timecursor2position)
           {
             //And not right of the right cursor;
-            scopesettings.timecursor1position = scopesettings.timecursor2position - 1;
+            newpos = scopesettings.timecursor2position - 1;
           }
+
+          scopesettings.timecursor1position = newpos;
           break;
+        }
 
         case CURSOR_TIME_RIGHT:
-          //Adjust the setting based on the set speed value
-          scopesettings.timecursor2position += speedvalue;
+        {
+          //Adjust in a signed local: same uint16 wrap hazard as the left cursor
+          int32 newpos = (int32)scopesettings.timecursor2position + speedvalue;
 
           //Limit it on the trace portion of the screen and the left time cursor
-          if(scopesettings.timecursor2position <= scopesettings.timecursor1position)
+          if(newpos <= scopesettings.timecursor1position)
           {
             //So not to the left of or on the left cursor
-            scopesettings.timecursor2position = scopesettings.timecursor1position + 1;
+            newpos = scopesettings.timecursor1position + 1;
           }
-          else if(scopesettings.timecursor2position > 704)
+          else if(newpos > 704)
           {
             //And not beyond the edge of the screen;
-            scopesettings.timecursor2position = 704;
+            newpos = 704;
           }
+
+          scopesettings.timecursor2position = newpos;
           break;
+        }
 
         case CURSOR_VOLT_TOP:
           //Adjust the setting based on the set speed value
@@ -1477,7 +1486,9 @@ void sm_set_time_base(void)
 
     //For time per div set with the dial the direct relation between the time per div and the sample rate is set
     //but only when the scope is running. Otherwise the sample rate of the acquired buffer still is valid.
-    if((scopesettings.runstate == RUN_STATE_RUNNING) || scopesettings.long_mode || (scopesettings.triggermode == 1))
+    //The triggermode clause is gated on !waveviewmode like Atlan4's scope_set_timebase: in wave view the
+    //stop state is forced and the viewed capture's sample rate must not be touched (nor a re-arm forced)
+    if((scopesettings.runstate == RUN_STATE_RUNNING) || scopesettings.long_mode || ((scopesettings.triggermode == 1) && (scopesettings.waveviewmode == 0)))
     {
       //Set the sample rate that belongs to the selected time per div setting
       scopesettings.samplerate = time_per_div_sample_rate[scopesettings.timeperdiv];
@@ -1513,8 +1524,23 @@ void sm_toggle_channel_enable(PCHANNELSETTINGS settings)
   //Toggle the enable
   settings->enable ^= 1;
 
+  //Update the trigger channel selection in the FPGA as needed, like Atlan4's touch flow
+  //does on this event; without it the FPGA keeps triggering on a disabled channel and a
+  //pending normal/single mode conversion never completes
+  fpga_swap_trigger_channel();
+
+  //Set the trigger vertical position to match the trigger channel position
+  scope_calculate_trigger_vertical_position();
+
+  //The level maps through the possibly changed channel's position/sensitivity: push it too
+  fpga_set_trigger_level();
+
   //Update the information part to show the channel is either disabled or enabled
   ui_display_channel_settings(settings);
+
+  //Show the possibly changed trigger channel and level pointer
+  ui_display_trigger_channel();
+  ui_display_trigger_vertical_position();
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -1555,6 +1581,15 @@ void sm_set_channel_sensitivity(PCHANNELSETTINGS settings)
       //Since the DC offset is influenced set that too
       fpga_set_channel_offset(settings);
 
+      //The FPGA trigger level is derived from the volt/div setting, so when the trigger is
+      //on this channel push the re-mapped level too, or a pending normal/single mode
+      //conversion keeps waiting on a level computed for the old sensitivity (F16 class)
+      if((settings == &scopesettings.channel1 && scopesettings.triggerchannel == 0) ||
+         (settings == &scopesettings.channel2 && scopesettings.triggerchannel == 1))
+      {
+        fpga_set_trigger_level();
+      }
+
       //Wait 50ms to allow the circuit to settle
       timer0_delay(50);
     }
@@ -1566,22 +1601,26 @@ void sm_set_channel_sensitivity(PCHANNELSETTINGS settings)
 void sm_set_channel_position(PCHANNELSETTINGS settings)
 {
   int16 delta = settings->traceposition;
-  
-  //Adjust the setting based on the set speed value
-  settings->traceposition += speedvalue;
+
+  //Adjust in a signed local: traceposition is uint16 in this tree (int16 in pecostm32,
+  //where this handler came from), so a fast move down from the bottom clamp would wrap
+  //past the minimum check and slam the trace to the top of the screen
+  int32 newpos = (int32)settings->traceposition + speedvalue;
 
   //Check if still in allowed range
-  if(settings->traceposition < VERTICAL_POINTER_POS_MIN)
+  if(newpos < VERTICAL_POINTER_POS_MIN)
   {
     //Limit it on the minimum range if needed
-    settings->traceposition = VERTICAL_POINTER_POS_MIN;
+    newpos = VERTICAL_POINTER_POS_MIN;
   }
-  else if(settings->traceposition > VERTICAL_POINTER_POS_MAX)
+  else if(newpos > VERTICAL_POINTER_POS_MAX)
   {
     //Limit it on maximum range if needed
-    settings->traceposition = VERTICAL_POINTER_POS_MAX;
+    newpos = VERTICAL_POINTER_POS_MAX;
   }
-  
+
+  settings->traceposition = newpos;
+
   //Show the new position value on the screen
   ui_display_channel_position(settings);
   
@@ -2492,6 +2531,14 @@ void sm_select_channel_option(void)
       fpga_set_channel_coupling(currentsettings);
       fpga_set_channel_offset(currentsettings);
 
+      //Zeroing the DC offset shifts the trigger level mapping, so when the trigger is on
+      //this channel push the level too (F16 class)
+      if((currentsettings == &scopesettings.channel1 && scopesettings.triggerchannel == 0) ||
+         (currentsettings == &scopesettings.channel2 && scopesettings.triggerchannel == 1))
+      {
+        fpga_set_trigger_level();
+      }
+
       //Show the new setting on the screen
       ui_display_channel_menu_coupling_select(currentsettings);
       ui_display_channel_coupling(currentsettings);
@@ -2824,11 +2871,11 @@ void sm_handle_clock_menu_actions(void)
 
 //----------------------------------------------------------------------------------------------------------------------------------
 //Manual interleave trim: adjust the highlighted channel's even/odd ADC balance one count
-//per detent while the trace and the r/p readout update live. Only the ADC2 compensation
-//moves, so the finest possible difference step is available; the half count of common
-//mode this adds is invisible next to the DC calibration offsets. The result is stored in
-//the normal compensation variables, so it persists with the settings like a Base
-//calibration result does.
+//per detent while the trace and the r/p readout update live. The difference adc2-adc1 is
+//what matters for the sawtooth; it is adjusted one count per detent and kept split
+//symmetrically (-(d/2) / d+adc1) so the row reads like a Base-cal result. The result is
+//stored in the normal compensation variables, so it persists with the settings like a
+//Base calibration result does.
 
 void sm_handle_trim_actions(void)
 {
