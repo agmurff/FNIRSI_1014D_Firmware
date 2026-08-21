@@ -317,9 +317,10 @@ int32 sd_card_read(uint32 sector, uint32 blocks, uint8 *buffer)
   if(buffer == 0)
     return(SD_ERROR_INVALID_BUFFER);
   
-  //This might be wrong. Need testing with last sector!!!!!
-  //Check if last bytes to read in range of the card sectors
-  if((sector + blocks - 1) > cardsectors)
+  //Reject empty requests and any range not fully inside the card. Wrap-free form: the old
+  //'sector + blocks - 1 > cardsectors' admitted one sector past the end (valid LBAs are
+  //0..cardsectors-1) and could wrap for huge sector values (REVIEW-2026-08-21 follow-up)
+  if((blocks == 0) || (sector >= cardsectors) || (blocks > (cardsectors - sector)))
     return(SD_ERROR_SECTOR_OUT_OF_RANGE);
   
   //Send card select command
@@ -389,8 +390,9 @@ int32 sd_card_write(uint32 sector, uint32 blocks, uint8 *buffer)
   if(buffer == 0)
     return(SD_ERROR_INVALID_BUFFER);
   
-  //Check if last bytes to read in range of the card sectors
-  if((sector + blocks - 1) > cardsectors)
+  //Reject empty requests and any range not fully inside the card (wrap-free form, same
+  //reasoning as sd_card_read above)
+  if((blocks == 0) || (sector >= cardsectors) || (blocks > (cardsectors - sector)))
     return(SD_ERROR_SECTOR_OUT_OF_RANGE);
   
   //Send card select command

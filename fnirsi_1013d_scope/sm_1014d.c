@@ -2959,6 +2959,11 @@ void sm_enter_fel_mode(void)
   //No more interrupt handling; the boot ROM sets up its own environment
   arm32_interrupt_disable();
 
+  //Invalidate the VIVT I-cache before handing over: sunxi-fel is about to overwrite this
+  //firmware in DRAM and re-execute from 0x80000000, and stale cache lines from the old
+  //image could otherwise execute (REVIEW-2026-08-21 follow-up)
+  arm32_icache_invalidate();
+
   //Jump to the boot ROM FEL entry, like the boot loader menu FEL option does
   __asm__ __volatile__ ("mov pc, %0\n" :"=r"(address):"0"(address));
 }

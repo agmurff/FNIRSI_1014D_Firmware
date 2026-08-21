@@ -200,8 +200,15 @@ void ui_setup_usb_screen(void)
   //Start the USB interface
   usb_device_enable();
 
-  //Wait for the user to push a button or rotate a dial on the front panel of the scope
-  uart1_wait_for_user_input();
+  //Wait for the user to push a button or rotate a dial on the front panel of the scope.
+  //While the host has claimed the medium (SCSI PREVENT_MEDIUM_REMOVAL sets mounted_to_PC)
+  //keep waiting instead of disconnecting: a knob bump mid-write would corrupt whatever
+  //the host had buffered. Mirrors Atlan4's 1013D touch gate (REVIEW-2026-08-21 follow-up).
+  do
+  {
+    uart1_wait_for_user_input();
+  }
+  while(mounted_to_PC);
 
   //Stop the USB interface
   usb_device_disable();

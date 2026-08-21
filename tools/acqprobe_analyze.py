@@ -136,7 +136,8 @@ def seam_scan(b, binsize=32):
     steps = [abs(means[i + 1] - means[i]) for i in range(nbins - 1)]
     ranked = sorted(range(len(steps)), key=lambda i: steps[i], reverse=True)
     med = sorted(steps)[len(steps) // 2]
-    return [(i * binsize + binsize // 2, steps[i], steps[i] / med if med else float("inf"))
+    # report the bin BOUNDARY (i+1)*binsize -- the step physically lies at/after it; +/- one bin
+    return [((i + 1) * binsize, steps[i], steps[i] / med if med else float("inf"))
             for i in ranked[:3]]
 
 
@@ -193,7 +194,7 @@ def analyze(binpath, txtpath, csvpath=None):
     print("%s  (report: %s)" % (binpath, txtpath if info else "none found"))
     line = "settings: %s/div (idx %d), %s (idx %d)" % (tdivtext, tdiv, rate_text(sidx), sidx)
     if rate:
-        line += "; 4096-sample ring spans %s per ADC" % si_time(4096 / rate)
+        line += "; 4096-sample ring spans %s per ADC" % si_time(4096 / (rate / 2.0))  # ring addresses are per-ADC: half the interleaved rate
     print(line)
 
     if info:
@@ -288,7 +289,7 @@ def analyze(binpath, txtpath, csvpath=None):
               % sorted(pos)[:16])
 
     # --- post-trigger seam: one localized step in an otherwise smooth block ---
-    print("seam scan (largest binned level steps; position is samples from the raw trigger address):")
+    print("seam scan (largest binned level steps; position is samples from the raw trigger address, +/- one 32-sample bin):")
     for i, b in enumerate(dump["data"]):
         cands = seam_scan(b)
         txt = "  ".join("@%d step %.2f (%.1fx median)" % c for c in cands)
@@ -327,13 +328,13 @@ def analyze(binpath, txtpath, csvpath=None):
                   % (sig, sd_sig, gstart, gend, glen, glevel))
             print("  fresh block = %d samples, ring %d -> (trigger) -> %d" % (n - glen, gend, gstart))
             print("  raw 0x14 trigger at ring %d%s" % (raw_ptr,
-                  (" ; display window ring %d..%d (raw-750)" % (disp_start, (disp_start + info.get("samplecount", 3000)) % n)) if fw1 else ""))
-            onscreen = " (%d on-screen, trigger at ~%d%% width)" % (750, int(100 * 750 / info.get("samplecount", 3000))) if fw1 and pre >= 750 else ""
+                  (" ; readout window ring %d..%d (raw-750, samplecount/2 addresses)" % (disp_start, (disp_start + info.get("samplecount", 3000) // 2) % n)) if fw1 else ""))
+            onscreen = " (%d in-window addresses = %d on-screen samples, trigger at ~%d%% width)" % (750, 1500, int(100 * 750 / (info.get("samplecount", 3000) // 2))) if fw1 and pre >= 750 else ""
             print("  -> pre-trigger  fresh = %d samples%s" % (pre, onscreen))
             print("  -> post-trigger fresh = %d samples" % post)
-            print("  -> the %d-sample gap sits past the display's right edge; the writer never"
+            print("  -> the %d-address gap starts past the readout window (fresh off-window data"
                   % glen)
-            print("     overwrites it within a capture (safe scratch / serial-reply headroom)")
+            print("     in between); the writer never overwrites it within a capture (scratch headroom)")
 
     if csvpath:
         with open(csvpath, "w") as f:

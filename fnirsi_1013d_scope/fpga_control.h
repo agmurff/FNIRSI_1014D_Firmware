@@ -75,6 +75,7 @@ void   fpga_set_sample_rate(uint32 samplerate);
 void   fpga_set_time_base(uint32 timebase);     //void   fpga_set_short_timebase(void);
 
 void   fpga_set_long_timebase(uint32 timebase);            //For long time base
+void   fpga_arm_long_timebase_cycle(void);                 //Roll per-read-cycle 0x0D+0x28/0x01 arm (stock fw1, 1014D only)
 
 void   fpga_set_trigger_channel(void);
 void   fpga_set_trigger_edge(void);

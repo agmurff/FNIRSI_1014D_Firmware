@@ -1,4 +1,14 @@
 //----------------------------------------------------------------------------------------------------------------------------------
+// CONCURRENCY INVARIANT (documented 2026-08-21, REVIEW follow-up): every SCSI command in
+// this file performs raw sd_card_read/sd_card_write from USB IRQ CONTEXT (usb_device_irq_handler
+// -> the EP callbacks below), sharing the SD driver's sd_command/sd_data state with the main
+// loop's FatFs use of the same card. This is only safe because every usb_device_enable() call
+// site immediately parks the main context in a modal wait with no SD side effects
+// (menu_1014d.c ui_setup_usb_screen on the 1014D; menu.c on the 1013D). Never enable USB from
+// a context that keeps running FatFs/SD work, and never add SD access to code reachable while
+// the USB screen is up. Bursts up to SCSI_MAX_BLOCK_COUNT sectors also run with IRQs masked,
+// stalling the 1 ms tick for the duration.
+//----------------------------------------------------------------------------------------------------------------------------------
 
 #include "mass_storage_class.h"
 #include "sd_card_interface.h"
@@ -371,10 +381,16 @@ void usb_mass_storage_out_ep_callback(void *fifo, int length)
                 scsi_csw.status = MSC_CSW_STATUS_FAIL;
 
                 //Calculate the residual data length
-                scsi_csw.data_residue = scsi_block_count * 512; 
-                
+                scsi_csw.data_residue = scsi_block_count * 512;
+
                 //Send the status
                 usb_write_ep1_data((void *)&scsi_csw, MSC_CSW_LENGTH);
+
+                //And stop right here: falling through used to stream stale buffer data
+                //AFTER the CSW, desyncing the bulk-only transport until a reset
+                //(REVIEW-2026-08-21 follow-up)
+                msc_state = MSC_WAIT_COMMAND;
+                break;
               }
 
               //Write the first block to the FIFO
@@ -592,9 +608,15 @@ void usb_mass_storage_in_ep_callback(void)
             scsi_csw.status = MSC_CSW_STATUS_FAIL;
 
             //Calculate the residual data length
-            scsi_csw.data_residue = scsi_block_count * 512; 
+            scsi_csw.data_residue = scsi_block_count * 512;
+
+            //Send the status and stop streaming: continuing used to send stale buffer
+            //contents as if the read succeeded (REVIEW-2026-08-21 follow-up)
+            usb_write_ep1_data((void *)&scsi_csw, MSC_CSW_LENGTH);
+            msc_state = MSC_WAIT_COMMAND;
+            break;
           }
-          
+
           //One full buffer done
           scsi_block_count -= scsi_available_blocks;
 

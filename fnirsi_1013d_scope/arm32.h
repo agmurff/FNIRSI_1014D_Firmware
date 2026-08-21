@@ -123,6 +123,16 @@ static inline void arm32_domain_set(uint32_t domain)
 		: "memory");
 }
 
+static inline void arm32_icache_invalidate(void)
+{
+	__asm__ __volatile__(
+		"mov r0, #0\n"
+		"mcr p15, 0, r0, c7, c5, 0\n"
+		:
+		:
+		: "r0");
+}
+
 static inline void arm32_tlb_invalidate(void)
 {
 	__asm__ __volatile__(

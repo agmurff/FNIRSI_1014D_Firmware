@@ -946,8 +946,12 @@ void scope_get_long_timebase_data(void)
         //disp_first_sample = 0;
     }
 
+    //Stock roll protocol: re-arm rate + mode select before every 0x24/0x26 read cycle
+    //(no-op on 1013D / PECO FPGAs; one pair covers both channels)
+    fpga_arm_long_timebase_cycle();
+
     //Check channel 1 is enabled
-    if(scopesettings.channel1.enable) 
+    if(scopesettings.channel1.enable)
         //Read, accumulate and average 10 bytes of channel 1 trace data
         scopesettings.channel1.tracebuffer[scopesettings.count] = fpga_average_trace_data(&scopesettings.channel1);
 
@@ -957,15 +961,25 @@ void scope_get_long_timebase_data(void)
         scopesettings.channel2.tracebuffer[scopesettings.count] = fpga_average_trace_data(&scopesettings.channel2);
 
 
+#if PORT_1014D
+    //P14 window: grid ends at x=704 and the standard per-frame blit is (2,48,705,432) (F17);
+    //Atlan4's 1013D sweep/rect numbers overdrew the sidebar edge (F21 mechanism 2)
+    if ( scopesettings.xpos > 704 )
+#else
     if ( scopesettings.xpos >726) //725
+#endif
     {
         //Use a separate buffer to clear the screen
         display_set_screen_buffer(displaybuffertmp);//1
 
         //Clear the trace portion of the screen
         display_set_fg_color(BLACK_COLOR);
+#if PORT_1014D
+        display_fill_rect(2, 48, 705, 432);
+#else
         display_fill_rect(0, 48, 730, 432); //403
-    
+#endif
+
 
         //Check if not in waveform view mode (Scope mode) with grid disabled
         if((!scopesettings.waveviewmode) || (scopesettings.gridenable))
@@ -982,14 +996,23 @@ void scope_get_long_timebase_data(void)
         scope_draw_volt_cursors();
         scope_display_cursor_measurements();
     
+#if PORT_1014D
+        scopesettings.xpos = 7;
+        scopesettings.lastx = 6;
+#else
         scopesettings.xpos = 4;
         scopesettings.lastx = 3;
-    
-    
+#endif
+
+
         //Copy it to the actual screen buffer
         display_set_source_buffer(displaybuffertmp);//1
         display_set_screen_buffer((uint16 *)maindisplaybuffer);
+#if PORT_1014D
+        display_copy_rect_to_screen(2, 48, 705, 432);
+#else
         display_copy_rect_to_screen(0, 48, 730, 432); //403
+#endif
         //display_copy_rect_to_screen(2, 44, 728, 434);       //opravit rozmery
     }
   
@@ -1055,12 +1078,27 @@ void scope_check_long_trigger(void)
 {
     uint32 sample1AVG = 0;
     uint32 sample2AVG = 0;
+#if PORT_1014D
+    //Compare in ADC space: fpga_set_trigger_level keeps scopesettings.triggerlevel as the
+    //exact ADC-space level derived from trigger position, trace position, DC offset and
+    //volt/div (fpga_control.c). The screen-space compare in the #else invents a second
+    //mapping (hard-coded '+25', global 'multiply' gain) that only agrees with the
+    //calibrated one near trace position ~200, and its uint16 triggerverticalposition
+    //wraps for negative positions, killing roll normal/single triggering permanently
+    //(REVIEW-2026-08-21 follow-up; 1013D left as-is per policy).
+    int32 level = (int32)scopesettings.triggerlevel;
+
+    //Stock roll protocol: re-arm rate + mode select before this function's 0x24/0x26 reads
+    //(it reads INSTEAD of the main roll loop while waiting for the software trigger)
+    fpga_arm_long_timebase_cycle();
+#else
     uint32 sample1 = 0;
     uint32 sample2 = 0;
     uint32 level = 0;
-    
+
     level = scopesettings.triggerverticalposition+25;   //+25 compensation
-    
+#endif
+
     //triggerlong = 1; 
     //scope_run_stop_text();
     
@@ -1072,32 +1110,36 @@ void scope_check_long_trigger(void)
     sample1AVG = fpga_average_trace_data(&scopesettings.channel1);
     timer0_delay(5);
     sample2AVG = fpga_average_trace_data(&scopesettings.channel1);
+#if !PORT_1014D
     //scopesettings.channel1.sample1 = sampleAVG;
     //Get the sample and adjust the data for the correct voltage per div setting
     //sample1 = ((sample1AVG) * scopesettings.channel1.input_calibration[scopesettings.channel1.samplevoltperdiv]) >> VOLTAGE_SHIFTER;
     //sample2 = ((sample2AVG) * scopesettings.channel1.input_calibration[scopesettings.channel1.samplevoltperdiv]) >> VOLTAGE_SHIFTER;
-    
+
     sample1 = ((sample1AVG) * multiply) >> VOLTAGE_SHIFTER;
     sample2 = ((sample2AVG) * multiply) >> VOLTAGE_SHIFTER;
     scopesettings.channel1.sample1 = sample2;
-    
+#endif
+
     }else
     {                                       //channel2
     //Read, accumulate and average 10 bytes of channel 2 trace data
     sample1AVG = fpga_average_trace_data(&scopesettings.channel2);
     timer0_delay(5);
     sample2AVG = fpga_average_trace_data(&scopesettings.channel2);
+#if !PORT_1014D
     //scopesettings.channel2.sample1 = sampleAVG;
     //Get the sample and adjust the data for the correct voltage per div setting
     //sample = ((sampleAVG) * scopesettings.channel2.input_calibration[scopesettings.channel2.samplevoltperdiv]) >> VOLTAGE_SHIFTER;
-    
+
     //sample1 = ((sample1AVG) * scopesettings.channel2.input_calibration[scopesettings.channel2.samplevoltperdiv]) >> VOLTAGE_SHIFTER;
     //sample2 = ((sample2AVG) * scopesettings.channel2.input_calibration[scopesettings.channel2.samplevoltperdiv]) >> VOLTAGE_SHIFTER;
-    
+
     sample1 = ((sample1AVG) * multiply) >> VOLTAGE_SHIFTER;
-    sample2 = ((sample2AVG) * multiply) >> VOLTAGE_SHIFTER;  
+    sample2 = ((sample2AVG) * multiply) >> VOLTAGE_SHIFTER;
     scopesettings.channel2.sample1 = sample2;
-    
+#endif
+
     }
    
     //if((scopesettings.triggerverticalposition == sample)||(scopesettings.triggerverticalposition == sample+1)) 
@@ -1105,9 +1147,17 @@ void scope_check_long_trigger(void)
     
     
     
+#if PORT_1014D
+    //ADC-space edge test against the level fpga_set_trigger_level computed (higher trigger
+    //position -> higher ADC level, same orientation as the old screen-space compare)
+    if(((scopesettings.triggeredge == 0) && ((int32)sample1AVG < level) && ((int32)sample2AVG >= level)) ||
+       ((scopesettings.triggeredge == 1) && ((int32)sample1AVG >= level) && ((int32)sample2AVG < level)))
+         {triggerlong = 1; scope_run_stop_text();}
+#else
     if(((scopesettings.triggeredge == 0) && (sample1 < level) && (sample2 >= level)) ||
        ((scopesettings.triggeredge == 1) && (sample1 >= level) && (sample2 < level)))
          {triggerlong = 1; scope_run_stop_text();}
+#endif
      
      
     /*

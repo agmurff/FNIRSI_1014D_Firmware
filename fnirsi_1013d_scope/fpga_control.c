@@ -594,10 +594,45 @@ void fpga_set_long_timebase(uint32 timebase)
   //Disable trigger system???
   fpga_write_cmd(0x0F);
   fpga_write_byte(0x01);
-  
-  //Some mode select command for the FPGA (0x01 for long time base)
-  //fpga_write_cmd(0x28); //0X28 not support in FPGA???
-  //fpga_write_byte(0x01);
+
+#if PORT_1014D
+  if(fpgasettings.fw_FPGA == 1)
+  {
+    //Stock roll-entry "reset": 0x0D <- 0x27 then the run rate + mode select
+    //(pecostm32-RE "FPGA explained".txt:218-219; seen at switch-to-roll and after touch).
+    //The 0x27 write is the least-understood byte here -- first thing to drop on bench trouble.
+    fpga_write_cmd(0x0D);
+    fpga_write_int(0x00000027);
+
+    fpga_arm_long_timebase_cycle();
+  }
+#endif
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//Roll-mode per-read-cycle arm (F25's other half). The stock FPGA is fed 0x0D (rate) + 0x28/0x01
+//before EVERY 0x24/0x26 read cycle, not just at mode entry: pecostm32-RE "FPGA explained".txt:202
+//and the 100mS_50S-div capture lines 63-82 (0x0D 0x000007D0 -> 0x28 0x01 -> 0x24 x10 -> 0x26 x10,
+//repeating). Stock writes 0x000007D0 for ALL roll timebases (table lines 205-214) and paces the
+//reads with a timer, exactly like scope_get_long_timebase_data's timeout loop does.
+//Stock fw only: PECO FPGAs (fw_FPGA 2/3) have their own long-timebase handling. 1014D only:
+//the 1013D variant stays at Atlan4's shipped behavior (no hardware to test -- policy 2026-08-21).
+//Applied 2026-08-21, hw-verify pending (REVIEW-2026-08-21.md follow-up).
+void fpga_arm_long_timebase_cycle(void)
+{
+#if PORT_1014D
+  if(fpgasettings.fw_FPGA == 1)
+  {
+    //ADC clock rate for roll mode: stock always 0x000007D0 here (fpga_write_int is MSB-first,
+    //matching the capture byte order 0x00 0x00 0x07 0xD0)
+    fpga_write_cmd(0x0D);
+    fpga_write_int(0x000007D0);
+
+    //Mode select: 0x01 = roll (counterpart of the 0x28/0x00 fast select in fpga_do_conversion)
+    fpga_write_cmd(0x28);
+    fpga_write_byte(0x01);
+  }
+#endif
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
