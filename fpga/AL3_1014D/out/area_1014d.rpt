@@ -1,0 +1,47 @@
+standard
+***Report Model: fnirsi_1013D***
+
+IO Statistics
+#IO                        70
+  #input                   37
+  #output                  23
+  #inout                   10
+
+Utilization Statistics
+#lut                      551   out of   8640    6.38%
+#reg                      361   out of   8640    4.18%
+#le                       561
+  #lut only               200   out of    561   35.65%
+  #reg only                10   out of    561    1.78%
+  #lut&reg                351   out of    561   62.57%
+#dsp                        0   out of      3    0.00%
+#bram                      32   out of     48   66.67%
+  #bram9k                  32
+  #fifo9k                   0
+#bram32k                    0   out of      2    0.00%
+#pad                       70   out of     93   75.27%
+  #ireg                     0
+  #oreg                     0
+  #treg                     0
+#pll                        1   out of      2   50.00%
+#gclk                       5   out of     16   31.25%
+
+Report Hierarchy Area:
++----------------------------------------------------------------------+
+|Instance |Module       |le    |lut    |ripple |seq    |bram   |dsp    |
++----------------------------------------------------------------------+
+|top      |fnirsi_1013D |561   |460    |91     |361    |32     |0      |
++----------------------------------------------------------------------+
+
+
+DataNet Average Fanout:
+
+   Index     Fanout    Nets  
+    #1         1       530   
+    #2         2       186   
+    #3         3        45   
+    #4         4        42   
+    #5        5-10      83   
+    #6       11-50      50   
+    #7       51-100     1    
+  Average     3.43           

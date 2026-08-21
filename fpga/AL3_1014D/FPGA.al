@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Project>
+    <Project_Created_Time>2026-07-18 02:30:00</Project_Created_Time>
+    <TD_Version>4.6.116866</TD_Version>
+    <UCode>01010110</UCode>
+    <Name>FPGA</Name>
+    <HardWare>
+        <Family>AL3</Family>
+        <Device>AL3A10LG144C7</Device>
+    </HardWare>
+    <Source_Files>
+        <Verilog>
+            <File>zaklad.v</File>
+            <File>al_ip/pll.v</File>
+            <File>al_ip/sample_memory.v</File>
+        </Verilog>
+        <ADC_FILE>zaklad_1014d.adc</ADC_FILE>
+        <SDC_FILE>zaklad_1014d.sdc</SDC_FILE>
+        <CWC_FILE/>
+    </Source_Files>
+    <TOP_MODULE>
+        <LABEL/>
+        <MODULE>fnirsi_1013D</MODULE>
+        <CREATEINDEX>auto</CREATEINDEX>
+    </TOP_MODULE>
+    <Configurations>
+        <Control/>
+    </Configurations>
+    <Property>
+        <BitgenProperty::GeneralOption>
+            <bin>on</bin>
+        </BitgenProperty::GeneralOption>
+    </Property>
+</Project>

@@ -1,0 +1,112 @@
+# fpga/AL3_1014D/zaklad_1014d.adc — retarget of Atlan4's AL3 replacement-FPGA design
+# (zaklad.v, "FPGA AL3S10" TD project) onto the stock 1014D board pinout. Same die on
+# both boards: AL3A10LG144C7.
+#
+# Derived 2026-07-18 by name-mapping the authoritative stock-1014D pinout
+# (pecostm32-RE/FNIRSI-1014D_FPGA/Original_1014D_fpga_generated.adc, machine-extracted
+# from the stock bitstream) onto zaklad.v's port names, cross-checked against the board
+# schematic (pecostm32-RE/Schematics/1014D/Scope_1014D_Data_Acquisition.png). PULLTYPEs
+# are kept verbatim from the stock extraction. SLEWRATE=FAST on the ADC encode outputs
+# follows Atlan4's 1013D zaklad.adc (the stock extraction records no slew rates).
+#
+# DESK-DERIVED, NEVER FLASHED. The sibling zaklad.v in this directory already carries
+# the required retarget patch (o_1khz_calib deleted — its 1013D location P133 is
+# o_ac_dc_2 on the 1014D — and the 1014D-only pins parked). Flashing any non-0x1432
+# bitstream while the stock 1014D bootloader is in use bricks the SD boot path
+# (FPGA_NOTES.md §migration, BOOT_NOTES.md); read fpga/README.md's flash gates first.
+# If TD objects to these comment lines, strip them:  grep -v '^#' zaklad_1014d.adc
+
+# --- MCU parallel bus (pin-identical to the 1013D; stock adds pullups) ---------------
+set_pin_assignment { i_mcu_clk } { LOCATION = P1; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_mcu_rws } { LOCATION = P2; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_mcu_dcs } { LOCATION = P3; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { io_mcu_data[0] } { LOCATION = P135; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { io_mcu_data[1] } { LOCATION = P136; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { io_mcu_data[2] } { LOCATION = P137; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { io_mcu_data[3] } { LOCATION = P138; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { io_mcu_data[4] } { LOCATION = P141; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { io_mcu_data[5] } { LOCATION = P142; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { io_mcu_data[6] } { LOCATION = P143; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { io_mcu_data[7] } { LOCATION = P144; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+
+# --- Reference clock: MS5351M CLK1 = 50 MHz (stock port name i_clk1, same pin as 1013D)
+set_pin_assignment { i_xtal } { LOCATION = P23; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+
+# --- CH1 ADC (AD9288 U8, cores A/B): data in + encodes out ---------------------------
+set_pin_assignment { i_adc1A_d[0] } { LOCATION = P103; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc1A_d[1] } { LOCATION = P101; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc1A_d[2] } { LOCATION = P100; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc1A_d[3] } { LOCATION = P99; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc1A_d[4] } { LOCATION = P98; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc1A_d[5] } { LOCATION = P91; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc1A_d[6] } { LOCATION = P90; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc1A_d[7] } { LOCATION = P89; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc1B_d[0] } { LOCATION = P110; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc1B_d[1] } { LOCATION = P111; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc1B_d[2] } { LOCATION = P112; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc1B_d[3] } { LOCATION = P113; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc1B_d[4] } { LOCATION = P114; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc1B_d[5] } { LOCATION = P115; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc1B_d[6] } { LOCATION = P119; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc1B_d[7] } { LOCATION = P120; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { o_adc1_encA } { LOCATION = P88; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; SLEWRATE = FAST; }
+set_pin_assignment { o_adc1_encB } { LOCATION = P121; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; SLEWRATE = FAST; }
+
+# --- CH2 ADC (AD9288 U7, cores A/B): data in + encodes out ---------------------------
+set_pin_assignment { i_adc2A_d[0] } { LOCATION = P72; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc2A_d[1] } { LOCATION = P71; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc2A_d[2] } { LOCATION = P70; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc2A_d[3] } { LOCATION = P69; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc2A_d[4] } { LOCATION = P68; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc2A_d[5] } { LOCATION = P67; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc2A_d[6] } { LOCATION = P66; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc2A_d[7] } { LOCATION = P65; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc2B_d[0] } { LOCATION = P73; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc2B_d[1] } { LOCATION = P74; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc2B_d[2] } { LOCATION = P75; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc2B_d[3] } { LOCATION = P76; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc2B_d[4] } { LOCATION = P77; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc2B_d[5] } { LOCATION = P80; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc2B_d[6] } { LOCATION = P83; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { i_adc2B_d[7] } { LOCATION = P84; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { o_adc2_encA } { LOCATION = P64; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; SLEWRATE = FAST; }
+set_pin_assignment { o_adc2_encB } { LOCATION = P85; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; SLEWRATE = FAST; }
+
+# --- Analog front-end controls -------------------------------------------------------
+set_pin_assignment { o_offset_1 } { LOCATION = P87; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; }
+set_pin_assignment { o_offset_2 } { LOCATION = P86; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; }
+set_pin_assignment { o_relay1_1 } { LOCATION = P129; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; }
+set_pin_assignment { o_relay1_2 } { LOCATION = P128; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; }
+set_pin_assignment { o_relay1_3 } { LOCATION = P127; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; }
+set_pin_assignment { o_relay2_1 } { LOCATION = P124; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; }
+set_pin_assignment { o_relay2_2 } { LOCATION = P125; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; }
+set_pin_assignment { o_relay2_3 } { LOCATION = P126; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; }
+set_pin_assignment { o_ac_dc_1 } { LOCATION = P132; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; }
+set_pin_assignment { o_ac_dc_2 } { LOCATION = P133; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; }
+
+# --- Display backlight PWM (was P42 on the 1013D) ------------------------------------
+set_pin_assignment { o_pwm_display } { LOCATION = P7; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; }
+
+# --- 1013D-only port with NO 1014D counterpart ---------------------------------------
+# o_1khz_calib (probe-comp / ext-trigger pin) does not exist on the 1014D; its old
+# location P133 drives the CH2 AC/DC relay driver here. Already DELETED from this
+# project's zaklad.v — do NOT carry its assignment over from the 1013D file.
+
+# --- 1014D-only pins, parked (matching stub ports exist in this zaklad.v) ------------
+# o_dac_d is driven 8'h00 (0 V at the R-2R ladder), the I2C pair is tristated
+# (external + internal pullups idle the bus high), i_clk2 is an unused input.
+# AWG R-2R DAC ladder into the RS8751XF buffer (schematic ADC_DAC page):
+set_pin_assignment { o_dac_d[0] } { LOCATION = P38; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; }
+set_pin_assignment { o_dac_d[1] } { LOCATION = P39; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; }
+set_pin_assignment { o_dac_d[2] } { LOCATION = P42; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; }
+set_pin_assignment { o_dac_d[3] } { LOCATION = P43; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; }
+set_pin_assignment { o_dac_d[4] } { LOCATION = P44; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; }
+set_pin_assignment { o_dac_d[5] } { LOCATION = P46; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; }
+set_pin_assignment { o_dac_d[6] } { LOCATION = P49; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; }
+set_pin_assignment { o_dac_d[7] } { LOCATION = P50; IOSTANDARD = LVCMOS33; PULLTYPE = NONE; }
+# "Special IC" U5 I2C — stock-firmware pairing gadget, not needed by this firmware
+# lineage (FPGA_NOTES.md §special IC):
+set_pin_assignment { io_i2c_scl } { LOCATION = P34; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+set_pin_assignment { io_i2c_sda } { LOCATION = P33; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
+# MS5351M CLK0 (200 MHz) second clock input, unused by Atlan4's design:
+set_pin_assignment { i_clk2 } { LOCATION = P24; IOSTANDARD = LVCMOS33; PULLTYPE = PULLUP; }
