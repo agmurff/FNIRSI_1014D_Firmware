@@ -1,10 +1,148 @@
-> **Fork status (2026-07-09, branch `atlan4-base`):** this fork now targets the **FNIRSI
-> 1014D** (benchtop) as well — the tree is Atlan4's 1013D fork v1.00o5 with pecostm32's
-> official 1014D modules grafted on, selected by `fnirsi_1013d_scope/port_config.h`
-> (`PORT_1014D 1`/`0`). The upstream text below (including "won't work on the 1014D") is
-> kept for provenance and describes the original 1013D-only project. Start with
-> **`CLAUDE.md`** (orientation), **`PORT_AUDIT.md`** (port audit + fixes),
-> **`FPGA_NOTES.md`** / **`BOOT_NOTES.md`** (protocol + boot contracts), **`ROADMAP.md`**.
+# FNIRSI 1013D / 1014D open firmware — Atlan4-base 1014D port
+
+Open replacement firmware for the **FNIRSI 1013D** (tablet) and **1014D** (benchtop)
+oscilloscopes, built on pecostm32's reverse-engineering work and Atlan4's evolved 1013D
+firmware. The active branch is **`atlan4-base`**: one source tree that builds either scope,
+selected by a single switch (`PORT_1014D` in `fnirsi_1013d_scope/port_config.h`, default 1
+= 1014D). GPLv3, no warranty — flashing replacement firmware is at your own risk (the stock
+firmware stays in SPI flash as a fallback; see `BOOT_NOTES.md`).
+
+## Why does everything still say "1013D"?
+
+This repository is a GitHub fork of `pecostm32/FNIRSI_1013D_Firmware`, renamed. The internal
+names — the `fnirsi_1013d_scope/` project directory, the `fnirsi_1013d.bin` SD image, the
+linker script, most file names — are inherited from that upstream and **kept deliberately**:
+the tree builds *both* scopes from the same sources, and keeping upstream names keeps
+three-way diffs against the reference trees (pecostm32's two repos and Atlan4's) trivial,
+which all the audit work here depends on. A 1014D build additionally emits variant-named
+copies (`fnirsi_1014d*.bin`) and the Makefile echoes `[port_config.h variant: …]` — always
+check it before flashing.
+
+## Provenance — a four-way merge
+
+```
+pecostm32's stock-firmware reverse engineering
+(FNIRSI-1013D-Hack, EEVBlog)
+   │
+   ▼
+pecostm32/FNIRSI_1013D_Firmware ················· this repo's `main` (pristine fork)
+   │  open 1013D firmware, touch UI
+   │        │
+   │        └─► Donwulff 1014D port, 2023-01 ···· this repo's `PORT_A` (historical)
+   │            quick & dirty proof of concept:
+   │            Si5351 clock gen + UART key
+   │            controller bolted onto the 1013D
+   │            firmware ("boots and reads keys")
+   │                │
+   │                ▼
+   │        pecostm32/FNIRSI_1014D_Firmware
+   │            the finished official 1014D
+   │            firmware: button/rotary UI,
+   │            state machine, clock synth,
+   │            UART driver, 1014D bootloader
+   │                │
+   ▼                │
+Atlan4/Fnirsi1013D v1.00o5                       │
+   much-evolved 1013D firmware: new menu         │
+   system, signal generator, USB CDC, RTC,       │
+   35-entry timebase space with roll mode…       │
+   (scope app grown from pecostm32's 1013D       │
+   sources; bootloaders adapted from his         │
+   1014D startup — it took from both)            │
+   │                │
+   └───────┬────────┘
+           ▼
+this repo, branch `atlan4-base` (active)
+   Atlan4 v1.00o5 as the base, pecostm32's official 1014D modules
+   grafted back on, one-switch dual variant
+```
+
+In story form: **pecostm32** reverse-engineered the 1013D and wrote the open firmware
+everything else descends from. **Donwulff** (this fork) did the first quick-and-dirty 1014D
+port in January 2023 — clock generator and key controller working, little else — which
+helped establish the 1014D was portable; **pecostm32** then built the finished official
+1014D firmware. Meanwhile **Atlan4** took the 1013D firmware much further (and, for his
+bootloaders, adapted pecostm32's 1014D startup back to the 1013D — so his work draws on
+both scopes' code). The current branch merges the two ends: Atlan4's 1013D base with
+pecostm32's 1014D modules grafted on. The original PORT_A code was deleted in that
+overhaul — its DNA survives only through pecostm32's finished firmware and the hardware
+notes preserved in `PORT_A.md`.
+
+| Branch | Contents |
+|---|---|
+| `atlan4-base` | **Active.** Atlan4 v1.00o5 + 1014D graft, dual-variant, all fixes and docs |
+| `main` | Pristine `pecostm32/FNIRSI_1013D_Firmware` upstream (fork base, kept unmodified) |
+| `PORT_A` | The 2023 first-generation 1014D port (superseded; see `PORT_A.md`) |
+
+## Status (2026-08-21)
+
+The 1014D variant runs on hardware: SD boot via pecostm32's 1014D bootloader, Si5351 clock
+init, live traces, key/rotary input, menus, USB mass storage. A full multi-agent code review
+(`REVIEW-2026-08-21.md`, 100 confirmed findings) and two fix waves have landed — including a
+rebuilt roll/long-timebase mode driven by the stock FPGA protocol recovered from bus
+captures — with hardware verification pending on most of it. The **1013D variant compiles
+and is kept deliberately at Atlan4's behavior** (no 1013D hardware here to test on); it has
+never been hardware-tested from this tree. Current known issues live in `CLAUDE.md`
+(§Known issues) and the findings log `PORT_AUDIT.md`.
+
+## Building and flashing
+
+Requires `arm-none-eabi-gcc`. Only the `Debug` config is real (`Release` is a stale STM32
+leftover).
+
+```sh
+cd fnirsi_1013d_scope
+make          # check the "[port_config.h variant: …]" and ">>> BOOTLOADER: …" lines
+```
+
+Flash `dist/Debug/GNU_ARM-Linux/fnirsi_1013d.bin` to the raw SD device at 8 KB offset
+(`dd bs=1024 seek=8`, FAT32 partition starting ≥1 MB in), or load the unpacked
+`fnirsi_1013d_scope.bin` over USB FEL. Full instructions, recovery paths, and the SD sector
+map: `CLAUDE.md` (build/load sections) and `BOOT_NOTES.md`.
+
+## What's in the tree
+
+- `fnirsi_1013d_scope/` — the firmware (both variants; NetBeans makefiles).
+- `fpga/` — a self-contained Anlogic TD project retargeting Atlan4's AL3 replacement-FPGA
+  design to the stock 1014D board. **Built, never flashed** — read `fpga/README.md` and
+  `FPGA_NOTES.md` before going anywhere near it.
+- `tools/` — host-side analyzers for on-scope capture data.
+- Docs: `CLAUDE.md` (orientation), `PORT_AUDIT.md` (findings log F1+),
+  `FPGA_NOTES.md` (FPGA protocol + capture geometry), `BOOT_NOTES.md` (boot chain +
+  loader contracts), `ROADMAP.md` (backlog), `REVIEW-2026-08-21.md` (full review record),
+  `PORT_A.md` (historical port), `AGENTS.md` (AI-agent context).
+- `fnirsi_1013d_sd_card_bootloader/`, `fnirsi_1013d_startup_screen/`,
+  `fnirsi_1013d_startup_from_sd_card/` — pecostm32's 1013D loader sources, tracked for
+  provenance only; nothing in the active build uses them. **Never run `make` in them** —
+  one of them overwrites the real build artifact with a loader-only image (`CLAUDE.md`).
+
+The deep-reference vendor checkouts the docs cite (`Atlan4-1.00o5/`,
+`FNIRSI_1013D_Firmware/`, `FNIRSI_1014D_Firmware/`, `Atlan4-FPGA/`, `pecostm32-RE/`,
+`Bootloader fw0.02…/`) are **local-only and untracked** — they do not appear on GitHub.
+Fetch them from the upstream repos below if you need them.
+
+## Upstream repositories and references
+
+- pecostm32 — [FNIRSI_1013D_Firmware](https://github.com/pecostm32/FNIRSI_1013D_Firmware),
+  [FNIRSI_1014D_Firmware](https://github.com/pecostm32/FNIRSI_1014D_Firmware),
+  [FNIRSI-1013D-Hack](https://github.com/pecostm32/FNIRSI-1013D-Hack) (history + tools)
+- Atlan4 — [Fnirsi1013D](https://github.com/Atlan4/Fnirsi1013D) (evolved 1013D firmware,
+  replacement FPGA designs, bootloaders)
+- Donwulff — [FNIRSI-1013D-1014D-Hack](https://github.com/Donwulff/FNIRSI-1013D-1014D-Hack)
+  (hardware/theory notes)
+- EEVBlog threads: [FNIRSI 1013D](https://www.eevblog.com/forum/testgear/fnirsi-1013d-100mhz-tablet-oscilloscope/),
+  [FNIRSI 1014D](https://www.eevblog.com/forum/testgear/new-bench-scope-fnirsi-1014d-7-1gsas/)
+  (where the 2023 port and most of the reverse engineering were first discussed)
+
+License: **GPLv3** (see `LICENSE`), inherited from upstream.
+
+---
+
+## Original pecostm32 1013D README (historical)
+
+Everything below is the upstream `FNIRSI_1013D_Firmware` README as forked, kept for
+provenance. Its instructions describe the original 1013D-only project — in particular the
+"won't work on the 1014D" warning predates this port.
 
 # 27-02-2025
 # Check out EEVblog on this: https://www.eevblog.com/forum/testgear/fnirsi-1013d-100mhz-tablet-oscilloscope/2725/#lastPost
