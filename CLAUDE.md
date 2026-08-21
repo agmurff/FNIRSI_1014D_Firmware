@@ -81,14 +81,23 @@ History: `main` = pristine pecostm32 1013D upstream; `PORT_A` = first-generation
   re-read determinism, seam scan, `--csv` export); findings land in FPGA_NOTES §capture
   geometry. The saved EEVBlog thread reference also moved to repo root
   (`EEVBlog_FNIRSI_1014D_port.html`, gitignored).
+- `fpga/` — the repo's own FPGA work product (committed 2026-08-21, `1162978` — sources +
+  curated `out/` artifacts; the TD `build/` working dir stays gitignored): a self-contained
+  Anlogic TD project (`fpga/AL3_1014D/`) retargeting Atlan4's AL3 replacement design to the
+  stock 1014D board, built headless on this server. Status: **BUILT, NEVER FLASHED**
+  (bitstream in `out/`). Read `fpga/README.md` and FPGA_NOTES.md §TD rebuild first;
+  Atlan4's own bitstream must **never** be flashed unmodified — pin functions differ
+  between boards.
 
 ## Key documents
 
-- **`PORT_AUDIT.md`** — 2026-07-09 full audit of the graft: method, verified-good list,
-  findings F1–F9, the same-day **fix pass (§5)** with outcomes (timebase root cause fixed,
-  dead `#ifndef` guards fixed, 1013D-variant make failure fixed, F2/strcpy retracted as a
-  false alarm, overlay-menu compositing added), AGENTS.md errata, and a hardware-verify
+- **`PORT_AUDIT.md`** — the living findings log (F1–F35 and counting), begun with the
+  2026-07-09 full audit of the graft (method, verified-good list, same-day **fix pass §5**)
+  and grown through fix passes **§5b–§5d** (bench-feedback, screenshot-driven, GUI-glue
+  audit), AGENTS.md errata, and a hardware-verify
   checklist. **Read it before touching acquisition, timebase, or variant guards.**
+- **`REVIEW-2026-08-21.md`** — 2026-08-21 multi-agent code + instruction-doc review (72
+  confirmed findings); basis of the same-day code-fix pass and doc refresh.
 - **`FPGA_NOTES.md`** — FPGA command inventory, `fw_FPGA` 1/2/3 paths, how long-timebase
   (roll) mode really works, and the new-FPGA migration assessment. Read before touching
   `fpga_control.c` or planning the bitstream swap.
@@ -104,9 +113,9 @@ History: `main` = pristine pecostm32 1013D upstream; `PORT_A` = first-generation
 
 ## Building
 
-Requires `arm-none-eabi-gcc` (plus host `gcc` to rebuild `mksunxi`/`flashfilepacker` if
-needed). NetBeans-generated makefiles; config `Debug` is the ARM target (`Release` is an
-unused host target).
+Requires `arm-none-eabi-gcc`. NetBeans-generated makefiles; config `Debug` is the ARM target
+(`Release` is a stale, unusable ARM/STM32 leftover — it links an STM32 linker script; only
+`Debug` builds).
 
 ```bash
 cd fnirsi_1013d_scope
@@ -125,8 +134,11 @@ filename in both variants), `fnirsi_1013d_scope.bin` (scope program only), plus 
 copies (`fnirsi_1014d*.bin` on 1014D builds).
 
 Gotchas:
-- Fresh checkout: `chmod +x fnirsi_1013d_scope/mksunxi fnirsi_1013d_scope/flashfilepacker`
-  (committed non-executable), or rebuild from the checked-in `.c` sources.
+- `mksunxi`/`flashfilepacker` are opaque committed host binaries — **no sources in this
+  tree** (they live upstream in pecostm32's repos); committed executable on this branch
+  since `9daa91f`, so no chmod is needed here (only the pristine pecostm32 branches commit
+  them non-executable). (Corrected 2026-08-21 — the old "rebuild from the checked-in `.c`
+  sources" advice was false.)
 - CFLAGS (in `nbproject/Makefile-Debug.mk`) carry `-fcommon` and
   `-Wno-error=implicit-*`/`int-conversion` for GCC 14, and are `-O2` (not `-O3`, not `-Og`).
 - **No automated tests** (`test` targets are empty NetBeans stubs). Verification is
@@ -149,22 +161,25 @@ The user builds on this Linux server and flashes from a Windows laptop (sunxi-fe
   and their FPGA version check). The old sector-710 byte poke does not work with the current
   1014D bootloader.
 - **Factory settings menu** (main menu, last item; added 2026-07-09): Restore defaults /
-  Reboot / FEL firmware update / Sampling clock. FEL is a direct BROM jump (`0xFFFF0020`);
-  Reboot + holding a key reaches the loader's own menu (F1 PECO / F2 stock firmware / F3
-  FEL). This replaced a hidden F1×2/F2 binding that stole the measurement-menu F-keys and
+  Reboot / FEL firmware update / Sampling clock / Acquisition probe (added 2026-07-17 —
+  the launcher for the on-scope capture probe that writes the `acqprobe_*.txt` +
+  `ringdump_*.bin` pairs the bench section above describes). FEL is a direct BROM jump
+  (`0xFFFF0020`); Reboot + holding a key reaches the loader's own menu (F1 PECO / F2 stock
+  firmware / F3 FEL). This replaced a hidden F1×2/F2 binding that stole the measurement-menu F-keys and
   wrote a boot byte the 1014D loader ignores (BOOT_NOTES.md). Sampling clock (2026-07-10)
   opens a submenu for manual Si5351 selection (50 stock/57/67/80 MHz, live A/B with traces
-  updating under the menu) plus the auto clock search — which no longer runs inside Base
-  calibration (FPGA_NOTES.md §clock search).
+  updating under the menu), the auto clock search — which no longer runs inside Base
+  calibration (FPGA_NOTES.md §clock search) — and manual interleave trim, Trim CH1 / Trim
+  CH2 (added 2026-07-11).
 - On-screen bring-up diagnostics: set `PORT_A_KEYDEBUG 1` in `port_config.h` (boot-stage
   squares, heartbeat/FPGA-version overlay).
 
 ## Architecture orientation (1014D build)
 
-`main()` in `fnirsi_1013d_scope.c`: clocks/caches → timer/IRQ → **`clock_synthesizer_setup()`
-(Si5351, must precede FPGA init)** → SPI flash → `fpga_init()` → display → SD/FatFs → USB →
-`scope_load_configuration_data()` (Atlan4 SD-sector config) → settings to FPGA →
-`ui_setup_main_screen()` → `uart1_init()` + `sm_init()` → loop:
+`main()` in `fnirsi_1013d_scope.c`: clocks/caches → timer/IRQ → SPI flash →
+**`clock_synthesizer_setup()` (Si5351, must precede FPGA init)** → `fpga_init()` → display →
+SD/FatFs → `scope_load_configuration_data()` (Atlan4 SD-sector config) → USB →
+settings to FPGA → `ui_setup_main_screen()` → `uart1_init()` + `sm_init()` → loop:
 `scope_acquire_trace_data()` → `sm_handle_user_input()` → `scope_display_trace_data()` (gated
 on `enabletracedisplay` OR `ui_menu_composite_active()` — open overlay menus are re-drawn
 into the offscreen buffer each frame by `ui_redraw_active_menu()`, so traces stay live under
@@ -176,8 +191,16 @@ wait for response) that is dispatched directly against `UIC_BUTTON_*`/`UIC_ROTAR
 is the confirmed-correct one — PORT_AUDIT.md F5).
 
 Shared core (both variants): `scope_functions.c`, `fpga_control.c`, `variables.c/.h`,
-storage/USB. 1013D-only UI: `menu.c`, `statemachine.c`, `touchpanel.c`, `DS3231.c`,
-`power_and_battery.c`, `generator.c`, `PC_interface.c`. 1014D-only: the imported table above.
+storage/USB. Variant separation uses three distinct mechanisms (clarified 2026-08-21 —
+both variants build the identical object list, so "x-only" never means "compiled out unless
+guarded"): **(a)** compiled-out whole-file guards — `menu_1014d.c`, `sm_1014d.c`,
+`fonts_1014d.c` on 1014D vs Atlan4's `font_0/2/3/4.c` on 1013D; **(b)** per-function-body
+stubs — `touchpanel.c`, `DS3231.c`, `power_and_battery.c`; **(c)** always-compiled files
+with variant-dead sections *plus shared utilities the 1014D build calls* — `menu.c`,
+`statemachine.c` (`match_volt_per_div_settings()` runs in the shared acquisition path),
+`generator.c`, `PC_interface.c` (`ini_SysParam()`, string/USB helpers), `uart.c`,
+`clock_synthesizer.c`, `font_1.c`. **Never add whole-file guards to group (c)** — it would
+break the 1014D link.
 Whole-file variant guards must come **after** the includes (`variables.h` pulls in
 `port_config.h`; a guard before includes silently compiles the file out).
 
@@ -188,15 +211,16 @@ Timing tables (`time_div_texts[35]`, `time_per_div_sample_rate[35]`,
 timebases — that difference was the root cause of the broken timebase keys, fixed by making
 `sm_set_time_base()` mirror `scope_set_timebase()` (PORT_AUDIT.md F1/§5).
 
-## Known issues (state after the 2026-07-09 fix pass)
+## Known issues (updated 2026-08-21)
 
 Working on hardware: SD boot via 1014D bootloader, Si5351 init, traces, UART keys (MENU→USB
 mount), menu navigation. Fixed in code, **hardware verification pending** (checklist in
 PORT_AUDIT.md §4): timebase keys incl. long timebases, overlay-menu compositing (traces keep
 updating live under main/channel menus, sliders, on/off panels — full-screen views still
 suppress traces), version-string overlap (variant suffix removed from display), 1013D-variant
-touch/battery/RTC restoration; Factory settings menu (defaults/reboot/FEL, replaces the
-hidden F-key boot-switch). From the 2026-07-09 bench observations, fixed in code (verify on
+touch/battery/RTC restoration; Factory settings menu (defaults / reboot / FEL / sampling
+clock / acquisition probe — replaces the hidden F-key boot-switch). From the 2026-07-09
+bench observations, fixed in code (verify on
 hardware): AUTO no longer paints touch chrome (menu.c's shared chrome functions now route to
 their `ui_` equivalents on 1014D), no more false flat trace or touch-scroller flash on
 timebase changes (`scope_preset_values()` guards), the Position trim works
@@ -207,30 +231,26 @@ timebase changes (`scope_preset_values()` guards), the Position trim works
 (PORT_AUDIT.md F25). Base calibration no longer changes the sampling
 clock (2026-07-10 — it used to overclock first and then calibrate *at* the overclock, making
 the sawtooth worse; clock experiments now live in Factory settings → Sampling clock).
-2026-07-10 night screenshot-driven pass (PORT_AUDIT.md §5c, F12–F15; verify pending):
-sidebar measurements now live-update every frame (`ui_update_measurements()` was never
-called), measurement labels moved right of the trace copy rect that was clipping them,
-probe 1:1/10:1/100:1 now maps to Atlan4 magnification rows 1/2/5 (was mislabeled + wrong
-scaling), top-bar volt/div uses new short texts (`volt_div_texts_short`, the "/div" ones
-overflowed the 57 px field), Base calibration persists its results (were RAM-only — a hard
-power cycle silently reverted them, the "cal wears off" effect) and shows the measured
-interleave comps (C1:/C2:, 2.5 s). Sawtooth status: cal *does* reduce it ~60 % (shorted-
-input screenshots); bench comps stable −3/+3 both channels; residual is either v/div
-dependence (averaged away) or a gain component (comp measured at ADC ~128, trace runs at
-~178) — position-sweep test recipe in FPGA_NOTES.md §Screenshot analysis. Also fixed same
-night (F16, bench-verified): normal/single trigger mode froze permanently once the level
-left the waveform — the non-blocking acquire only pushes the trigger level when arming, so
-the sm handlers now push `fpga_set_trigger_level()` directly (level rotary, trigger-channel
-toggle, 50 %, origin). F17: the 1014D per-frame trace copy narrowed to the P14 window
-(`(2,48,705,432)` — Atlan4's 728-wide copy wiped/flash-fought the sidebar edge; grid ends
-at 704), labels back at P14-native x=719, version+build stamp split onto two lines clear
-of the move-speed text. Interleave-mismatch verdicts: position sweep ruled out gain-type;
-`d:` row came back uniform (~6 across all v/div) ruling out per-v/div comp — the averaged
-offset comp is already optimal, so the cal diagnostic now measures the post-comp residual
-(`r: score peak` per channel, waits for key press) to separate noise/outliers from any
-real leftover structure (FPGA_NOTES.md §Screenshot analysis). GUI-glue audit (PORT_AUDIT.md §5d): all 49 `ui_*`
-hooks that pecostm32's core makes are present in this tree; the GUI code is verbatim P14
-and bench differences are seams (fonts/tables/geometry/hooks), each class now audited.
-Remaining: "chrome" fragments below the PECO logo / version area (screenshot needed);
-residual touch chrome (file-level UI swap plan); "Output browsing"/"Capture output"
-main-menu items are null (null in pecostm32's fork too); backlog in ROADMAP.md.
+**Status (2026-08-21):** the findings log since F25 lives in PORT_AUDIT.md F26–F35; the
+blow-by-blow narrative that used to sit here (the 2026-07-10 night pass F12–F17, the
+pre-F25 sawtooth investigation, the interleave verdicts) is historical — see PORT_AUDIT.md
+§5c/§5d. Where things stand: F27 heisenbug verdict — F24/F26 both non-causal, acquisition
+audited code-identical to pecostm32, the graft is at pecostm32 parity and the pivot to his
+base is off the table. Implemented, hardware-verify pending: F28 (honest measurement
+precision + hi-res Vavg) and the seam sweep F31–F33 (AC/DC coupling was never pushed to
+the FPGA — inherited from pecostm32; Q16-vs-Q20 time readouts 16× off; overclock-blind
+frequency). Bench-verified: F29's −22 V display symptom (dash guard, 2026-07-17), F34
+spacing. Capture-geometry thread CLOSED 2026-07-21: ring mod-4096, ~2500-sample
+post-trigger fill (FPGA_NOTES.md §capture geometry). **Open:** F30 (Base-cal
+non-repeatable +7 mV residual, gated on a pecostm32 A/B — F29's stale-value root cause
+folds under it), the roll-mode `0x28/0x01` half of F25 (deferred to a test.c deep pass),
+F35 (one-shot offset jump, unreproduced). **2026-08-21 full review + same-day code-fix
+pass** (REVIEW-2026-08-21.md; findings filed in PORT_AUDIT.md): found + fixed in code,
+hw-verify pending — uint16 traceposition/time-cursor wraps, trigger-level re-push on
+v/div change, trigger-source swap on channel disable, wave-view `!waveviewmode` guard in
+`sm_set_time_base`, CDC `f` clamp + config-restore clamp, `UINT32_SAMPLE_BUFFER_SIZE`
+round-up, X-Y negative-index guard, 1014D `get_fattime` fixed timestamp, RTC-block guard,
+base-cal `0x0E` restore, F28 resolution rescale, acqprobe CH1 gating (+ analyzer). Policy
+(2026-08-21): no 1013D hardware here — where 1014D fixes could have been extended, the
+1013D variant is deliberately left at Atlan4 behavior (a known divergence vs pecostm32's
+1013D upstream; needs testing on real hardware). Backlog in ROADMAP.md.

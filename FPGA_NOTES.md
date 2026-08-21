@@ -50,32 +50,38 @@ Legacy/stock commands (pecostm32-original, all fw paths):
 | `0x0D` | set ADC sample-rate divider (`fpga_write_int(sample_rate_settings[i])`; comment: `0x07D0` (2000) ≈ 100 kSa/s) |
 | `0x0E` | set time base / capture length: fw 1 writes `timebase_settings[i]`, fw 2/3 write `scopesettings.samplecount` |
 | `0x0F` | trigger system enable(0) / disable(1) |
-| `0x14` | prepare transfer / read trigger point (`short & 0x0FFF, +2`) |
+| `0x14` | prepare transfer / read trigger point — this tree reads `short & 0x1FFF`, no +2 (13-bit; the `& 0x0FFF, +2` form is pecostm32's 1014D firmware, commented out here — reference-only) |
 | `0x15` `0x16` `0x17` | trigger channel / edge / level |
 | `0x1A` | trigger mode |
 | `0x1F` | set read pointer, before ADC reads |
-| `0x28` | "short time base mode" — **dead**: Atlan4 comments it "0X28 not support in FPGA???" and never sends it |
+| `0x28` | mode select (`0x00` fast / `0x01` roll) — sent **every conversion** on the fw1/1014D path since F25 (2026-07-12, table row corrected 2026-08-21); the roll-mode `0x28/0x01` in `fpga_set_long_timebase` is still commented out ("0X28 not support in FPGA???") — see §SOLVED follow-up |
+| `0x29` | dual-ADC mode select (`0x01`) — sent alongside `0x28` every conversion since F25 |
 | `0x38` | backlight brightness (`short`) — PWM lives in the FPGA (why the panel flashes until the FPGA has clocks) |
-| `0x3C` | "battery level"-ish init write (`short 32431`), purpose still unclear |
+| `0x3C` | "battery level"-ish write (`short 32431`) — **never sent**: writer `fpga_set_battery_level()` and its lone call site are both commented out (as in pristine Atlan4; noted 2026-08-21); purpose decoded in §special IC (the U5 `0x3C`/`0x41` loopback handshake) |
 | per-channel | `enablecommand` / `couplingcommand` / `voltperdivcommand` / `offsetcommand` / `adc1command` / `adc2command` from `CHANNELSETTINGS` |
 
 Atlan4 additions:
 
 | Cmd | Meaning | Guard |
 |---|---|---|
-| `0x0B` | pretrigger samples (`fpgasettings.settriggerpoint`) | only sent when `fw_FPGA > 1` |
-| `0x0C` | total samples (`fpgasettings.totalsamples`) | only sent when `fw_FPGA > 1` |
+| `0x0B` | pretrigger samples (`fpgasettings.settriggerpoint/2` — the per-ADC half, 750 at defaults) | only sent when `fw_FPGA > 1` |
+| `0x0C` | total samples (`fpgasettings.totalsamples/2` — the per-ADC half, 1500 at defaults) | only sent when `fw_FPGA > 1` |
 | `0x50` | signal generator output on/off | **no fw guard** — stock-FPGA support unverified |
 | `0x51` | signal generator frequency | " |
 | `0x52` | signal generator duty cycle | " |
 
-The generator commands are reachable only from the 1013D touch UI paths
-(`statemachine.c` ~3600, `generator.c`); the 1014D build never sends them today
-(`scope_generator_settings()` is skipped on 1014D — it hung on a fresh flash, root cause
+**Correction (2026-08-21, review):** `0x50–0x52` ARE sent — at every boot, on both variants.
+`main()` calls `fpga_on_off_generator()` unguarded, and *both* its branches send `0x51` (freq),
+`0x52` (duty) and `0x50` (on/off) — even with `gen_enable==0` it sends 100 Hz / 0 % / off
+(inherited verbatim from pristine Atlan4, vendor commit 9daa91f). Only the *interactive*
+generator UI is 1013D-only (`statemachine.c` ~3600, `generator.c`;
+`scope_generator_settings()` is skipped on 1014D — it hung on a fresh flash, root cause
 still not pinned). Bench A/B 2026-07-17: the 1014D AWG works **only under stock firmware**
 — pecostm32's 1014D has no generator code either (GEN = empty case), so `0x50–0x52` are
-Atlan4-replacement-FPGA commands and the stock AWG protocol remains un-REd; the boot hang
-is consistent with an unknown command wedging the stock FPGA's parser (ROADMAP 14).
+Atlan4-replacement-FPGA commands and the stock AWG protocol remains un-REd. Since the stock
+0x1432 FPGA demonstrably *tolerates* all three un-REd commands every boot without wedging,
+the ROADMAP-14 "unknown command wedges the stock FPGA's parser" hang hypothesis is weakened
+— the hang investigation should look elsewhere.
 
 ## Long vs short time base (how it actually works)
 
@@ -101,8 +107,9 @@ driven run closed the last open item — the post-trigger fill boundary — belo
   via `0x17`, edge `0x16`, source `0x15`). Trigger time is therefore quantized to the
   sample clock; against any signal not phase-locked to the Si5351 the sub-sample phase is
   uniformly random per capture. A constant ADC pipeline delay is common to all captures.
-- **Ring buffer = 4096 samples per ADC — bench-confirmed** (12-bit trigger address from
-  `0x14`; the fw1 read-pointer math `data<750 ? +3345 : −750` is a wrap at 4095+1). Four
+- **Ring buffer = 4096 samples per ADC — bench-confirmed** (13-bit trigger-address register
+  from `0x14` (`& 0x1FFF`), ring behavior mod-4096; the fw1 read-pointer math
+  `data<750 ? +3345 : −750` is a wrap at 4095+1). Four
   rings total (2 ch × 2 ADC) plus pecostm32's reported AWG block. Measured: 4608-sample
   dumps give `b[k] == b[k+4096]` byte-exact in all 15 blocks of the first run (equality
   collapses to the noise floor at W=4095/4097 and at 512/1024/2048), so the read pointer
@@ -128,17 +135,24 @@ driven run closed the last open item — the post-trigger fill boundary — belo
   untouched (that region reads back as whatever it held before — 128 baseline or 0 rail —
   which is how the gap is visible). Both runs agree on the fixed parts and the analyzer's
   `capture fill geometry` section now reports them:
-    - raw `0x14` trigger at ring **911**, display window ring 161…3161 (= raw − 750).
-    - **pre-trigger fresh = 910 samples**, of which **750 are on-screen** → the trigger
-      sits at 25 % of the 3000-sample window. The fw1 `−750` constant *is* the on-screen
-      pre-trigger depth; the fresh block's leading edge (ring ~0) is fixed capture to
-      capture.
-    - **post-trigger fresh ≈ 2507** samples (finger held) — **the ≈2500 estimate
+    (units corrected 2026-08-21, review: ring addresses are per-ADC — 1 address = 2
+    interleaved samples; the original text mixed the two, putting the derived window/gap
+    figures 2× off. The per-ADC counts themselves were and are correct.)
+    - raw `0x14` trigger at ring **911**, readout window ring 161…1661 (= raw − 750 …
+      raw + 750: 1500 ring addresses = the 3000 interleaved on-screen samples).
+    - **pre-trigger fresh = 910 addresses**, of which **750 are in-window** (= 1500
+      interleaved samples) → the trigger sits **mid-window, 50 %** of the 3000-sample
+      window — matching the firmware's own `settriggerpoint == samplecount/2` "50 %"
+      label. The fw1 `−750` constant *is* the in-window pre-trigger depth; the fresh
+      block's leading edge (ring ~0) is fixed capture to capture.
+    - **post-trigger fresh ≈ 2507** addresses (finger held) — **the ≈2500 estimate
       confirmed to the sample**; the noisy-contact run filled less (1705) and its gap
       grew to match, so the *fill length is trigger-timing dependent* in auto mode: a
       clean, promptly-satisfied trigger fills ~2500 post; a marginal one fills less.
-    - **unwritten gap = 679** samples (held run) up to **1481** (noisy), sitting just past
-      the display's right edge and never overwritten within a capture.
+    - **unwritten gap = 679** addresses (held run) up to **1481** (noisy), starting
+      ~950–1750 addresses past the readout window's right edge — everything between
+      window end (ring 1661) and gap start is fresh but off-window data, never
+      overwritten within a capture.
   So the unread headroom is indeed mostly *post*-trigger record plus a several-hundred-
   sample never-touched gap — exactly what the serial-reply window wants (ROADMAP 29).
   **Correction to the first-run guess:** the `3345` is only the fw1 display-offset
@@ -162,7 +176,7 @@ driven run closed the last open item — the post-trigger fill boundary — belo
   295/s at 100 µs/div (fill-time-bound). Net: **~500–900 stacked captures/s** feasible
   at fast timebases, full-ring 4-ADC stacking ~150–200/s; one second at 500/s ⇒
   σ/√N ≈ 22×.
-- **Measurement probe exists (2026-07-17, bench run pending):** Factory settings →
+- **Measurement probe exists (added 2026-07-17; runs analyzed 2026-07-19):** Factory settings →
   *Acquisition probe* (`scope_do_acquisition_probe()`, raw reads via `fpga_dump_ring()`)
   measures the arm→flag rate, the full-readout rate, and dumps 5×4608 samples (ADC
   commands 0x20/0x21/0x22/0x23 + 0x20 again for determinism) starting at the raw 0x14
@@ -190,7 +204,8 @@ driven run closed the last open item — the post-trigger fill boundary — belo
 ## SOLVED: sawtooth at ≤200 ns/div — missing FPGA `0x28` mode-select (bench, 2026-07-12)
 
 **Root cause (PORT_AUDIT.md F25):** Atlan4 commented out the `0x28` "mode select" write in
-`fpga_do_conversion` (and its roll-mode `0x28/0x01` in `fpga_set_time_base`) on a wrong guess
+`fpga_do_conversion` (and its roll-mode `0x28/0x01` in `fpga_set_long_timebase` — function name
+corrected 2026-08-21; `fpga_set_time_base` contains no 0x28 at all) on a wrong guess
 (`fpga_control.c` "`0X28 not support in FPGA???`"). But `pecostm32-RE/FPGA explained/` proves the
 stock FPGA is fed `0x28` **every** conversion (`0x00` for <100 mS, `0x01` for ≥100 mS/roll), so we
 were running the interleaved dual-ADC front end without the per-conversion mode-select the silicon
@@ -198,8 +213,14 @@ requires — leaving the even/odd offset ~3× larger than pecostm32's. Restoring
 `0x28/0x00` (stock `fw_FPGA==1` path, matching pecostm32 byte-for-byte) **eliminated the sawtooth**;
 the residual is now the same small offset pecostm32 has, with comp at 0. The interleave cal is kept
 (now valid, since cal and runtime share the `0x28` conversion) to trim that residual further —
-something pecostm32 can't, having no cal. **Follow-up:** restore roll-mode `0x28/0x01` in
-`fpga_set_time_base` (still commented). The original investigation notes are kept below for the
+something pecostm32 can't, having no cal. **Follow-up (still open 2026-08-21, deferred to a
+`test.c` deep pass):** restore roll-mode `0x28/0x01` in `fpga_set_long_timebase` (still
+commented — the function name was misstated as `fpga_set_time_base` here until 2026-08-21;
+that one is the 0x0E short-timebase function and must NOT get a 0x28). When implementing,
+mirror the stock capture: it sends `0x0D` + `0x28/0x01` before *every* roll-mode `0x24/0x26`
+read cycle, not once at mode entry — so the per-cycle send belongs in the
+`scope_get_long_timebase_data()` read loop, not only in `fpga_set_long_timebase`; bench-verify
+against the 100mS_50S capture. The original investigation notes are kept below for the
 record — the "clean ⇒ software" branch of the A/B test is what proved out (it was firmware, and the
 diff was this one missing write).
 
@@ -339,7 +360,7 @@ unidentified EEPROM-like IC (Atlan4's `zaklad.v` even comments "Not implemented 
 version is the I2C interface part"). So Atlan4's bitstream **cannot be flashed as-is** —
 porting = retarget `zaklad.v` with the 1014D `.adc` pinout and decide what to do about the
 DAC/I²C/second-clock functions (the decompiled stock netlist is the reference for their
-behavior). **The retarget pinout now exists: `fpga/zaklad_1014d.adc` + `fpga/README.md`**
+behavior). **The retarget pinout now exists: `fpga/AL3_1014D/zaklad_1014d.adc` + `fpga/README.md`**
 (2026-07-18, desk-derived name-map of the stock `.adc` onto zaklad.v's ports, with the
 required zaklad.v patch, SDC starter, and do-not-flash gates). The "EEPROM-like IC" is
 decoded behaviorally below.
@@ -367,7 +388,8 @@ couldn't either, and drew it as **"UNKOWN IC"**.
   firmware writes to FPGA reg **0x3C** and later must read back via **0x41 == 0x8150 or
   it hangs in an endless loop** (0x8150 is, cutely, the GT911 touch-register address —
   and why Atlan4's zaklad.v calls its 0x3C loopback register `touch_panel_address`; our
-  init's odd `0x3C` write is this handshake's vestige). 0x0B returns a fixed per-v/div
+  init's odd `0x3C` write — commented out, never actually sent (see the command table) —
+  is this handshake's vestige). 0x0B returns a fixed per-v/div
   byte (0xAD/0xAF/0xB4/0xB4/0xB8/0xB8/0xB8), 0x11 computes `(in>>4)+2`, 0x10 scales
   brightness 0–100 → 0–0xEA60, 0x14 (input always 0xED) returns yet another command byte.
   Several params *compute* ⇒ likely a tiny MCU in an EEPROM footprint = **anti-clone /
@@ -408,7 +430,8 @@ unless a calibration story exists.
 
 ### Auto clock search in Base calibration (Grok Build's, repaired 2026-07-10)
 
-An `auto_detect_max_clean_sampling_clock()` pass (Grok Build 4.5, uncommitted) runs at the
+An `auto_detect_max_clean_sampling_clock()` pass (Grok Build 4.5, committed 2026-07-10
+`77af34b`) runs at the
 start of `scope_do_baseline_calibration()`: it steps the Si5351 CLK1 through
 50/57/67/80 MHz, captures at the top rate index with the trigger disabled, scores each
 clock with an even/odd interleave-artifact metric (`measure_high_rate_artifact()`), and
@@ -456,7 +479,7 @@ questionable clock. Also, the search captures went through `fpga_read_sample_dat
 which applies the *stored* interleave compensation at rate 0, so candidates were scored on
 residual-after-somebody-else's-comp, not raw hardware mismatch.
 
-Restructured (uncommitted, hw-verify pending):
+Restructured (committed 2026-07-10 `77af34b`, hw-verify pending):
 
 - **Base calibration no longer touches the clock.** It calibrates at the currently
   selected clock (boot = stock 50 MHz), so "calibrate then look at the sawtooth" is now a
@@ -481,6 +504,9 @@ Restructured (uncommitted, hw-verify pending):
   samples/pixel — the display renders every *second* buffer sample, i.e. only one of the
   two ADCs; see the screenshot analysis below. From 1 µs/div down the rate drops to
   100 MSa/s and below where even/odd are no longer distinct ADC samples.)
+  **Superseded (noted 2026-08-21):** the gate was later dropped entirely — compensation is
+  applied unconditionally at every rate since F23/`b0daa6b` (2026-07-11), matching
+  pecostm32's read path.
 
 Remaining gaps (deliberate): the chosen clock is **not persisted** (every boot returns to
 50 MHz — safe default), and `sampling_clock_scale` is consumed only by the range/trace
@@ -558,6 +584,8 @@ pixel-diffing settled several open questions:
   The mismatch is in the buffer but cannot show on screen; the comp there shifts the
   displayed parity by a constant, also invisible. So the samplerate==0 gate change is
   correct for measurements (Vpp etc. run over the full buffer) and neutral for display.
+  (Historical — the gate itself was later dropped, comp unconditional at all rates per
+  F23/`b0daa6b`; noted 2026-08-21.)
 - **"Calibration wears off"**: shots 9/10/11 are pixel-near-identical to factory shots
   3/1/5 — comps were zero again when they were taken. `sm_do_base_calibration()` never
   saved the config; results lived in RAM until the soft-off save, so a hard power cycle
@@ -669,7 +697,8 @@ Effort knobs used (in `FPGA.al` `<Property>`): `GateProperty` opt_timing/pack_ef
   sweep optimizes a partial picture. Starter block in `fpga/README.md`.
 - Next flow-validation checkpoints: bitstream size ≈ shipped `FPGA.bin` (283 KB), device
   id packet `f0 00 0006 18006c31` (al3_10) and the `ec f0 0433` frame marker present
-  (§flash/bitstream findings above), then the 1014D retarget via `fpga/zaklad_1014d.adc`.
+  (§flash/bitstream findings above), then the 1014D retarget via
+  `fpga/AL3_1014D/zaklad_1014d.adc`.
 
 **2026-07-18 (later): Linux headless flow VALIDATED, 1014D bitstream BUILT.** TD 5.0.3
 now runs on this server: unzip to `~/tools/anlogic-td/TD_5.0.3_28716_NL/`, license in
@@ -693,8 +722,9 @@ links libgtk-x11/libgdk-x11 unconditionally but batch mode never calls them). Co
   (shipped) 160.4 MHz/−21.1 → 5.0.3-defaults (server) 277.9/0 → 5.0.4-high (laptop)
   288.6/0 (effort adds only ~4 %). clkc[1] negative in every build = structural, as
   analyzed.
-- **1014D retarget built** (`fpga/AL3_1014D/`, sources tracked; artifacts + reports
-  curated in `out/`): 70 I/O (37 in/23 out/10 inout) all at stock-1014D locations
+- **1014D retarget built** (`fpga/AL3_1014D/`, committed 2026-08-21 `1162978` — sources +
+  curated `out/` artifacts; the TD `build/` working dir stays gitignored): 70 I/O
+  (37 in/23 out/10 inout) all at stock-1014D locations
   (spot-checked P7 backlight, P23/P24 clocks, P33/34 I²C, P64/P85/P88/P121 encodes,
   P133 ac_dc_2, P38–P50 DAC), 32 BRAM9K, timing at defaults 264.0 MHz/TNS 0 +
   clkc[1] 149.3/−3.38; **`FPGA_1014D.bin` = 282,898 B — byte-count-identical to

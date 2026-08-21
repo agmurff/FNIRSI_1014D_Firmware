@@ -55,7 +55,7 @@ Output:
 - Boots from SD with 1014D bootloader, shows firmware v1.00o5
 - Si5351 clock gen init — scope doesn't hang, no flatline traces
 - UART1 key controller responds (MENU button mounts USB disk, MODE button shows STOP text)
-- **Factory settings menu** (main menu, last item — added 2026-07-09, hardware-untested): Restore defaults (reset + save + reboot), Reboot (save + watchdog reset; holding a key during the reboot opens the loader menu: F1 PECO / F2 stock / F3 FEL), FEL firmware update (direct jump to the BROM FEL entry `0xFFFF0020`, like the loader's own F3). It replaced the hidden F1×2/F2 boot-switch, which collided with the F-keys' measurement-menu bindings and wrote a byte contract the 1014D loader ignores — its useful effect was only the reboot.
+- **Factory settings menu** (main menu, last item — added 2026-07-09; five items since 2026-07-17, list updated here 2026-08-21): Restore defaults (reset + save + reboot), Reboot (save + watchdog reset; holding a key during the reboot opens the loader menu: F1 PECO / F2 stock / F3 FEL), FEL firmware update (direct jump to the BROM FEL entry `0xFFFF0020`, like the loader's own F3), Sampling clock (manual Si5351 selection + auto search + Trim CH1/CH2, added 2026-07-10/11), Acquisition probe (on-scope capture probe producing the `acqprobe_*.txt`/`ringdump_*.bin` pairs, added 2026-07-17). It replaced the hidden F1×2/F2 boot-switch, which collided with the F-keys' measurement-menu bindings and wrote a byte contract the 1014D loader ignores — its useful effect was only the reboot.
 
 **Fixed:**
 - **Menu wrap at bottom** — caused by `typedef char int8` being unsigned on ARM. DOWN/SUB set `setvalue = -1` which stored 255, making `menuitem -= 255` always wrap to item 10.
@@ -66,7 +66,7 @@ Output:
 - **Battery icon** — was a stale observation: nothing on the 1014D path draws it since the `ui_setup_main_screen()` swap.
 - **Overlay-menu compositing** — traces now keep updating live beneath main/channel menus, sliders and on/off panels (`ui_redraw_active_menu()` composites them into the offscreen buffer each frame); file/item view still suppress traces. This also revived the grid-brightness slider live preview.
 - Key codes: dispatch uses pecostm32's `UIC_*` mapping (confirmed correct); the `GD_*` table in uart.h is documentation-only.
-- **Bench-observation fixes (2026-07-09 evening, hardware verification pending):** AUTO painting touch chrome → menu.c's shared chrome functions (`scope_setup_main_screen`, `scope_run_stop_text/button`, `scope_channel_settings`, `scope_acqusition_settings`, `scope_trigger_settings`) now route to their `ui_` equivalents on 1014D — shared core can call them safely; false flat trace + touch-scroller flash on timebase change → `scope_preset_values()` no longer clears/draws/blits on 1014D (per-frame path owns the screen); dead Position trim → `scope_calculate_sample_range_properties()` was missing its P14 tail (never set `disp_xrange`/`trigger_position_min/max`); AUTO now clears `long_mode` + resends the time base. **Open:** ≤200 ns/div sawtooth — FPGA_NOTES.md has the analysis and the P14-binary A/B recipe.
+- **Bench-observation fixes (2026-07-09 evening, hardware verification pending):** AUTO painting touch chrome → menu.c's shared chrome functions (`scope_setup_main_screen`, `scope_run_stop_text/button`, `scope_channel_settings`, `scope_acqusition_settings`, `scope_trigger_settings`) now route to their `ui_` equivalents on 1014D — shared core can call them safely; false flat trace + touch-scroller flash on timebase change → `scope_preset_values()` no longer clears/draws/blits on 1014D (per-frame path owns the screen); dead Position trim → `scope_calculate_sample_range_properties()` was missing its P14 tail (never set `disp_xrange`/`trigger_position_min/max`); AUTO now clears `long_mode` + resends the time base. **SOLVED (2026-07-12):** ≤200 ns/div sawtooth — Atlan4 had commented out the FPGA 0x28 mode-select in `fpga_do_conversion`; restored on the stock `fw_FPGA==1` path, bench-confirmed gone (PORT_AUDIT.md F25 — the old A/B recipe in FPGA_NOTES.md is obsolete).
 
 **Broken/wrong (known issues):**
 - **GUI is partly touch-oriented still** — leftover 1013D chrome paths; the file-level UI swap below is the plan
@@ -79,12 +79,13 @@ Output:
 - **`DS3231.c`** — RTC. All function bodies guarded with `#if !PORT_1014D`.
 - **`power_and_battery.c`** — Battery monitoring. All function bodies guarded with `#if !PORT_1014D`.
 - **Key dispatch** — `sm_init()` + `sm_handle_user_input()` in `sm_1014d.c` (imported from the 1014D fork's statemachine.c); the old inline-in-`main()` dispatch is gone.
-- **Factory settings menu** — `sm_open_factory_menu()`/`sm_handle_factory_menu_actions()` (sm_1014d.c) + `ui_*_factory_menu()` (menu_1014d.c), state `NAV_FACTORY_MENU_HANDLING`, reuses `onoffhighlighteditem` for its row highlight. Actions: `sm_do_factory_reset()`, `sm_reboot_scope()`, `sm_enter_fel_mode()` (direct `0xFFFF0020` jump), `sm_restart_system()` (watchdog). The old hidden F1×2/F2 boot-switch is gone; boot-byte contracts in BOOT_NOTES.md.
+- **Factory settings menu** — `sm_open_factory_menu()`/`sm_handle_factory_menu_actions()` (sm_1014d.c) + `ui_*_factory_menu()` (menu_1014d.c), state `NAV_FACTORY_MENU_HANDLING`, reuses `onoffhighlighteditem` for its row highlight. Actions: `sm_do_factory_reset()`, `sm_reboot_scope()`, `sm_enter_fel_mode()` (direct `0xFFFF0020` jump), `sm_restart_system()` (watchdog), plus the Sampling clock submenu (`sm_open_clock_menu()`/`sm_set_sampling_clock()`, state `NAV_CLOCK_MENU_HANDLING` — added 2026-07-10) and the Acquisition probe launcher (added 2026-07-17). The old hidden F1×2/F2 boot-switch is gone; boot-byte contracts in BOOT_NOTES.md.
+- **`fonts_1014d.c` + `font_1.c`** — P14 fonts imported from pecostm32's `1014D_fonts.c` (`font_0/2/3/4` on 2026-07-10 per PORT_AUDIT F10, the 13 px VW `font_1` earlier): the P14 layout needs P14 glyph metrics. Atlan4's own `font_0/2/3/4.c` are `#if !PORT_1014D`-guarded — compiled out on the 1014D build.
 - **`port_a.c`/`port_a.h` DELETED** — First-attempt stubs for clock gen + UART. Superseded by `clock_synthesizer.c`/`uart.c`. If `port_a.c`/`port_a.h` appear in `git status` as deleted, they are intentionally gone.
 
 ## Architecture — key insight
 
-The Atlan4 1013D code has NO input abstraction layer. `touch_handler()` reads raw pixel coords and enters blocking menu loops; the 1014D path is an inline if-chain in `main()`. The UI rendering differs fundamentally (touch targets on 1013D vs measurement space on 1014D).
+The Atlan4 1013D code has NO input abstraction layer on the touch side: `touch_handler()` reads raw pixel coords and enters blocking menu loops. The 1014D path is the `sm_1014d.c` state machine (`sm_init()`/`sm_handle_user_input()` — the old inline if-chain in `main()` is gone). The UI rendering differs fundamentally (touch targets on 1013D vs measurement space on 1014D).
 
 **Plan: file-level UI swap by variant** (not an abstraction layer):
 
@@ -92,7 +93,7 @@ The Atlan4 1013D code has NO input abstraction layer. `touch_handler()` reads ra
 |---|---|---|
 | Signal path, math, FPGA, USB, storage | `scope_functions.c`, `fpga_control.c`, `ref_and_math.c`, `sd_card_interface.c`, etc. | **Always** |
 | 1013D UI + touch input | `menu.c` + `statemachine.c` + `generator.c` + `PC_interface.c` + `touchpanel.c` | Only when `PORT_1014D 0` |
-| 1014D UI + key input | `menu_1014d.c` + `sm_1014d.c` (already imported from fork as untracked files) | Only when `PORT_1014D 1` |
+| 1014D UI + key input | `menu_1014d.c` + `sm_1014d.c` (imported from fork, committed) | Only when `PORT_1014D 1` |
 | 1014D hardware | `clock_synthesizer.c`, `uart.c` | Only when `PORT_1014D 1` |
 | 1013D hardware | `DS3231.c`, `power_and_battery.c` | Only when `PORT_1014D 0` |
 
@@ -102,7 +103,7 @@ Rationale: valuable Atlan4 changes (acquisition, math, FPGA) are in shared files
 
 ## Gotchas (hard-earned)
 
-- **mksunxi / flashfilepacker Linux ELFs are committed mode 100644.** On fresh checkout, `chmod +x mksunxi flashfilepacker` in `fnirsi_1013d_scope/`, or rebuild from source: `gcc mksunxi.c -o mksunxi && gcc flashfilepacker.c -o flashfilepacker`.
+- **mksunxi / flashfilepacker Linux ELFs are committed executable (100755) on this branch** since the Atlan4 vendor commit 9daa91f — no chmod needed on a fresh `atlan4-base` checkout (corrected 2026-08-21; the `chmod +x` in `fnirsi_1013d_scope/` only applies on the older branches, `main`/`PORT_A`, which commit them 100644). Fallback is rebuilding from source (`gcc mksunxi.c -o mksunxi && gcc flashfilepacker.c -o flashfilepacker`) — but note the `.c` sources are NOT in this tree; they live in the upstream pecostm32 repos.
 - **`strcpy` in this tree is NOT ISO** — the linked implementation is the C function in `scope_functions.c` (returns a pointer **at** the copied terminator; both Atlan4 and the imported UI chain `buffer = strcpy(buffer, …)` on that). `strcpy.s` exists but is **never compiled** (not in the object list) — don't "fix" it and don't add it to the build. CFLAGS carry `-fno-builtin-strcpy` so GCC can't fold calls to ISO dst-return semantics.
 - **Bootloader:** `bootloader_base.bin` (1013D, offset 0x5BC00) and `bootloader_1014d_base.bin` (1014D, offset 0x8000) are committed binaries selected automatically by Makefile from `port_config.h`. The 1014D bootloader is built from `FNIRSI_1014D_Firmware/fnirsi_1014d_startup/`.
 - **GCC 14+ `-fcommon`:** Required in `nbproject/Makefile-Debug.mk` CFLAGS to fix `multiple definition of calibrationsettings`.
@@ -110,13 +111,13 @@ Rationale: valuable Atlan4 changes (acquisition, math, FPGA) are in shared files
 - **Ignore `compile.sh`, `burn.sh`, `debug.sh`** — stale STM32/OpenOCD leftovers.
 - **`Release` config** targets host GNU/Linux, not ARM — not used.
 - **`(void)x` casts are inconsistent with codebase style** — CFLAGS in `nbproject/Makefile-Debug.mk` do NOT include `-Wunused-parameter`, so `(void)x` casts to suppress unused-parameter/variable warnings are unnecessary noise. The original code never used them. Their presence is a telltale AI-generated-slop marker. Remove them.
-- **`FNIRSI_1014D_Firmware/`** and **`Atlan4/`** are vendored third-party trees, not part of this port's source — but `clock_synthesizer.c/.h` and `uart.c/.h` were imported from `FNIRSI_1014D_Firmware/fnirsi_1014d_scope/`.
+- **`FNIRSI_1014D_Firmware/`** and **`Atlan4-1.00o5/`** are vendored third-party trees, not part of this port's source (full reference-tree list in `CLAUDE.md`) — but `clock_synthesizer.c/.h` and `uart.c/.h` were imported from `FNIRSI_1014D_Firmware/fnirsi_1014d_scope/`.
 - **`#if PORT_1014D` guard in `sm_1014d.c` must come AFTER includes** — `variables.h` pulls in `port_config.h` which defines `PORT_1014D`. If the guard is before includes, `PORT_1014D` is undefined → preprocessor treats it as 0 → entire file silently skipped. Symptom: `sm_1014d.o` is ~1KB with no symbols, linker errors for `sm_init`/`sm_handle_user_input`.
 - **`typedef char int8` is unsigned on ARM** — ARM GCC defaults `char` to unsigned (`-funsigned-char`). `typedef char int8` in `types.h` means `int8` is actually `uint8`. `int8 x = -1` stores `0xFF` = 255, and `menuitem -= x` zero-extends to 255 instead of sign-extending to -1. Fix: `typedef signed char int8`. Symptom: DOWN/SUB in menu navigation always jumps to the last item. Same code works on x86 (where `char` defaults to signed).
 - **Integer promotion masks `int8` signedness for add/sub/mul** — In `ref_and_math.c:147`, `int8 a = A[i]` copies `uint8` ADC data (0-255) into `int8`. Despite signedness change, add/sub/mul produce identical final `uint8` results because both operands promote to `int32` and truncation back to `uint8` is modulo-256. Only integer division (`mathmode==4`) differs. The ADC samples are mid-scale at 128 (`memset(..., 128, ...)`) — treat as centered-around-zero in signed math.
 - **Key code values are identical — EXCEPT NAV_LEFT/NAV_RIGHT** — `GD_KEY_*` in `uart.h` and `UIC_BUTTON_*` in `statemachine.h` share numeric values (sequential 0x01–0x32) except GD says 0x08=LEFT/0x0C=RIGHT while UIC says 8=RIGHT/12=LEFT (PORT_AUDIT.md F5). No translation layer; the UART raw byte passes directly to the state machine switch/case, so behavior follows the UIC (pecostm32) mapping. The GD_* table is unreferenced dead code — verify nav direction on hardware, then reconcile.
 - **UART polling is blocking** — `uart1_receive_data()` sends 0xFF then busy-waits for the DR bit. Every call blocks until the key controller responds. This gates the main loop frame rate on UART response time.
-- **Memory layout adjacency in `variables.c`** — `globaldisplaytext[50]` → `speedvalue` (int8) → `setvalue` (int8) → `navigationstate` (uint8) → `menuitem` (int16) are declared consecutively. Any `globaldisplaytext` buffer overflow silently corrupts these state variables. String buffer overruns in any print/format function using this buffer can cause unpredictable menu or state machine behavior.
+- **Memory layout adjacency in `variables.c`** — the whole 1014D UI-state block (`speedvalue`, `setvalue`, `navigationstate`, `fileviewstate`, …, `menuitem` — variables.c:19–29 as of 2026-08-21; the block has grown since first documented) is declared directly after `globaldisplaytext[50]`. Any `globaldisplaytext` buffer overflow silently corrupts these state variables. String buffer overruns in any print/format function using this buffer can cause unpredictable menu or state machine behavior.
 - **Working tree may diverge from HEAD** — `git diff origin/main` includes BOTH committed and uncommitted changes. Uncommitted worktree edits (e.g., `#ifndef PORT_1014D` guards in DS3231.c) may exist that are not in any commit. Always check `git status` and `git diff HEAD` to distinguish committed vs worktree-only changes before acting.
 
 ## FEL load (primary dev loop)
@@ -154,14 +155,15 @@ display_copy_rect_to_screen(x, y, w, h);          // atomic blit
 ```
 Any drawing that runs OUTSIDE this sequence writes to whichever buffer is currently set via `display_set_screen_buffer()`. If `maindisplaybuffer` is current, writes go directly to the visible framebuffer (no double-buffer safety).
 
-**`scope_display_trace_data()` clears rect (2, 48, 728, 432) every frame** — this is the entire trace/grid area. Any UI chrome with y ≥ 48 AND x < 730 gets erased and must be redrawn INSIDE this function (before the copy-to-screen) to survive. Chrome at y < 48 (top info bar, channel panels) or x ≥ 730 (right measurement column) persists without per-frame redraw.
+**`scope_display_trace_data()` clears rect (2, 48, 728, 432) into `displaybuffertmp` every frame, but the 1014D blit is only (2, 48, 705, 432)** (F17, 2026-07-10 — Atlan4's full 728-wide copy wiped the sidebar edge; the 1013D path keeps 728. Rules updated 2026-08-21). The visible trace area ends at x=706: anything drawn into `displaybuffertmp` at x 707–729 never reaches the screen. So chrome with y ≥ 48 AND x < 707 gets erased and must be redrawn INSIDE this function (before the copy-to-screen) to survive; chrome at x ≥ 707 must be drawn to the visible screen instead — or via `ui_update_measurements()`, which DOES redraw the right measurement column every frame after the blit (F12). Chrome at y < 48 (top info bar, channel panels) persists without per-frame redraw.
 
 **1013D vs 1014D chrome in `scope_display_trace_data()`** — the 1013D functions
 (`scope_draw_pointers()`, cursor/measurement draws) are `#if !PORT_1014D`-guarded; the 1014D
-build draws `ui_display_trigger_settings()`, `ui_display_waiting_triggered_text()`,
-`ui_draw_pointers()`, `ui_display_cursors()`, then `ui_redraw_active_menu()` — all into
-`displaybuffertmp` before the atomic blit. Anything you add inside the cleared trace rect
-must join that block or it will flicker/vanish.
+build draws `ui_draw_outline()` first, then `ui_display_trigger_settings()`,
+`ui_display_waiting_triggered_text()`, `ui_draw_pointers()`, `ui_display_cursors()`, then
+`ui_redraw_active_menu()` — all into `displaybuffertmp` before the atomic blit — and calls
+`ui_update_measurements()` after the blit. Anything you add inside the cleared trace rect
+must join the pre-blit block or it will flicker/vanish.
 
 **Trace-display gating (2026-07-09):** the gate is `enabletracedisplay || ui_menu_composite_active()`
 (main loop AND the early return in `scope_display_trace_data()`). Overlay menus (main menu,

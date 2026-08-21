@@ -219,6 +219,10 @@ hard part remains the FPGA: a different bitstream on the 1014D means neither bas
 
 ## Port-forward onto Atlan4 — status (branch `atlan4-base`, updated 2026-07-06)
 
+> **⚠️ Snapshot of 2026-07-06**, before the modules-import overhaul — the flashing/FEL
+> details below (0x5BC00 base, boot-config-byte FEL entry) are superseded; see `CLAUDE.md`
+> and `BOOT_NOTES.md` for the current procedures. (Marker added 2026-08-21.)
+
 The port-forward is underway on branch **`atlan4-base`**. The snapshot adopted is Atlan4
 **v1.00o5** (not v0.28a — that estimate predated getting the real source); its scope source is
 vendored into `fnirsi_1013d_scope/` and builds clean with this server's `arm-none-eabi-gcc`

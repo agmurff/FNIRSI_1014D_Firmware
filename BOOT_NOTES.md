@@ -57,7 +57,7 @@ Consequences in the current tree:
 | 80 (image offset 0x8000) | scope program, eGON.EXE header | `fnirsi_1014d_startup` |
 | 708 | input calibration data | `scope_load/save_input_calibration_data()` |
 | 709 | scope settings (checksummed blob) | `scope_load/save_configuration_data()` (save fires on the key controller's OFF code) |
-| 710 | display config: magic words `AAAAAAAA/55555555` (0,1), TCON timing (2,3), magic `CCCCCCCC/33333333` (4,5), checksum of words 0–5 (6); byte 0x1F = legacy boot-choice byte | both loaders + `display_control.c` read; `scope_reset_config_data()` and the sm boot-switch write |
+| 710 | display config: magic words `AAAAAAAA/55555555` (0,1), TCON timing (2,3), magic `CCCCCCCC/33333333` (4,5), checksum of words 0–5 (6); byte 0x1F = legacy boot-choice byte | per-chain (row corrected 2026-08-21) — 1013D chain: loader reads it into DRAM, `scope_reset_config_data()` writes it; 1014D chain: nobody reads it from SD (`display_control.c` validates only the never-populated DRAM mirror), the write is `#if !PORT_1014D`-guarded, and the sm boot-switch writer was removed 2026-07-09 |
 
 Both pecostm32's startup and the scope's `display_control.c` **validate the magic words and
 fall back to hardcoded panel timing** (`0x041E0044` / `0x041A0017`) when invalid — that is

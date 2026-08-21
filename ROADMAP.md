@@ -10,8 +10,10 @@ Written 2026-07-09 after the port audit + fix pass (PORT_AUDIT.md). Ordered roug
    AUTO (no touch chrome, sane rate after), Position trim pans the trace (indicator = bottom
    time-offset text + top pointer), no flat-trace/scroller flash on timebase changes, and the
    Factory settings menu (defaults/reboot/FEL direct jump).
-1b. **Sawtooth at ≤200 ns/div** — run Base calibration first, then the P14-binary A/B test
-   (FPGA_NOTES.md §sawtooth); fix direction depends on the outcome. A dedicated trace
+1b. ~~Sawtooth at ≤200 ns/div — run Base calibration first, then the P14-binary A/B test;
+   fix direction depends on the outcome.~~ **Done 2026-07-12** (PORT_AUDIT F25 — Atlan4 had
+   dropped the FPGA `0x28` mode-select; restored on the stock `fw_FPGA==1` path,
+   bench-confirmed gone; FPGA_NOTES.md §SOLVED). A dedicated trace
    scrollbar/locator for the benchtop UI is a follow-on idea once panning is verified.
 2. ~~Decide the boot-source switch's fate~~ **Done 2026-07-09**: the hidden F1×2/F2 binding
    was removed and replaced by the **Factory settings menu** (Restore defaults / Reboot /
@@ -60,8 +62,18 @@ Written 2026-07-09 after the port audit + fix pass (PORT_AUDIT.md). Ordered roug
 11. **Calibration track** — wire/verify the imported calibration UI (`menu_1014d.c` has
     CALIBRATION_STATE screens) against sector-708 input-calibration storage; per-ADC
     compensation on this unit's front end.
+    *Substantially landed 2026-07-10/11 (annotated 2026-08-21): Base cal runs and persists
+    across power cycles (F19), per-ADC interleave compensation with the manual Trim CH1/CH2
+    UI (F20/F21), comp measured at pecostm32's 2 MSa/s (3de7675). Sector-708 is moot on a
+    1014D (never written there — F19). Remainder: any still-unwired CALIBRATION_STATE
+    screens, plus the F30 residual (item 22).*
 12. **Roll-mode/long-timebase UX** — newly reachable from keys after the F1 fix; verify,
     then polish (it's trigger-off streaming; the UI should say so).
+    *Verified 2026-07-11 (PORT_AUDIT F21; annotated 2026-08-21): boundary retuned — roll is
+    kept for ≤500 ms only (crossing jumps 6↔11; 200/100/50/20 ms sweep-only). Still open:
+    the roll renderer itself looks geometry-broken on the 1014D (trace crawling past the
+    right edge + a trace-area shadow at the wrong location) — suspected F17-class
+    P14-vs-Atlan4 copy-rect geometry; needs its own pass.*
 13. **PC interface on the 1014D** — USB CDC (`cdc_class.c`/`PC_interface.c`) is compiled but
     only reachable from touch UI; wire a key/menu item to toggle MSC↔CDC (`USB_CH340`).
     Long-standing target shape (donwulff-notes.md): a **sigrok-compatible** data-logger /
@@ -90,6 +102,12 @@ Written 2026-07-09 after the port audit + fix pass (PORT_AUDIT.md). Ordered roug
     → auto-trim per-ADC offset/gain until they do; phase skew needs fast edges from an
     **external** source (the 1014D has no probe-comp output, and its AWG works only under
     stock firmware — item 14).
+    *Status 2026-08-21: the "sane shape" landed 2026-07-10 — Factory settings → Sampling
+    clock has the 50/57/67/80 MHz presets, Trim CH1/CH2, and the auto clock search
+    (FPGA_NOTES §clock search). The "order matters" premise is retired: the sawtooth was the
+    missing `0x28` mode-select (F25), not interleave calibration. Live remainder here: the
+    CLK2 cal-frequency-output idea and the even/odd-statistics auto-trim; clock experiments
+    continue under item 28.*
 
 ## FPGA + bootloader migration (tracked in FPGA_NOTES.md / BOOT_NOTES.md)
 
@@ -98,14 +116,15 @@ Written 2026-07-09 after the port audit + fix pass (PORT_AUDIT.md). Ordered roug
     `fw_FPGA=2`; the "bootloader v0.8" prerequisite decoded (v0.8 = our
     `bootloader_base.bin`, FPGA wait dead code). Also vendored `pecostm32-RE/` (stock 1014D
     FPGA flash dump = the back-out path, decompiled netlist, authoritative 1014D pinout,
-    board schematics, bus captures). Real remaining work before any flash: **retarget
-    `zaklad.v` to the 1014D pinout** (`Original_1014D_fpga_generated.adc`; same die
-    AL3A10LG144C7, MCU bus identical, analog side fully reshuffled) and decide handling of
-    the 1014D-only DAC bus / I²C EEPROM / second clock input; flashing = CH341A on the
+    board schematics, bus captures). *Update 2026-08-21:* the retarget of `zaklad.v` to the
+    1014D pinout (`Original_1014D_fpga_generated.adc`; same die AL3A10LG144C7, MCU bus
+    identical, analog side fully reshuffled) is **BUILT** — project + curated bitstream at
+    `fpga/AL3_1014D/` (committed 2026-08-21, `1162978`; never flashed — FPGA_NOTES §TD
+    rebuild), and the TD toolchain is installed and validated on both ends (laptop 5.0.4 GUI
+    + server 5.0.3 headless; **license expires 2026-08-31**). Flashing = CH341A on the
     board's `FPGA_FLASH` header J2 (or TD JTAG on J5) — the scope CPU has no path to the
-    FPGA flash. Details: FPGA_NOTES.md §pecostm32-RE. Toolchain downloaded 2026-07-10 to
-    `~/tools/anlogic-td/` (TD 5.0.3 Linux + 4.6.4 + licenses), not yet installed — setup
-    notes + headless-flow validation plan in FPGA_NOTES.md §"Synthesis environment".
+    FPGA flash; details FPGA_NOTES.md §pecostm32-RE. Remaining pre-flash gate: item 17's
+    loader `0x1432` patch (plus the flashing route itself).
 17. **Patch `fnirsi_1014d_startup` first**: relax the `0x1432` spin (bricks the boot path
     under any other bitstream — Atlan4's v0.8 simply never calls it; follow that precedent),
     optionally adopt the boot byte (item 2), rebuild `bootloader_1014d_base.bin`,
@@ -156,7 +175,7 @@ Background: the 2023 EEVBlog rebuttals ("needs a programmable trigger delay"; "E
 analog BW anyway") addressed *sequential* ETS. What was actually proposed is **random
 interleaved sampling** (RIS): trigger quantization to the sample clock gives every capture a
 uniformly random sub-sample phase for free, and alignment happens in software. No FPGA change
-needed; capture-geometry facts + open post-trigger-fill question in FPGA_NOTES §capture
+needed; capture-geometry facts (post-trigger fill closed 2026-07-19) in FPGA_NOTES §capture
 geometry. Trigger-level dithering is a dead end (the level never moves the sampling instants —
 it only picks a different reference sample). All of this runs on stock fw_FPGA==1; the Atlan4
 bitstream (deeper/settable capture via 0x0B/0x0C) is a separate track (items 16–18).
@@ -197,8 +216,12 @@ bitstream (deeper/settable capture via 0x0B/0x0C) is a separate track (items 16�
     overhead) / 295/s (100 µs, fill-bound). **Second run 2026-07-19** (driven finger-hum,
     `bench/acqprobe/2026-07-19-trigger-probe/`) **closed the post-trigger fill boundary**:
     each capture writes one contiguous fresh block from a fixed ring start (~0) through the
-    trigger (910 pre-trigger samples / 750 on-screen ⇒ trigger at 25 % width) to a variable
-    stop, leaving a 680–1480-sample unwritten gap past the display's right edge; post-trigger
+    trigger (910 pre-trigger ring addresses; the readout window spans raw−750 … raw+750
+    addresses = 3000 interleaved samples, so the trigger sits mid-window at 50 % — corrected
+    2026-08-21, the earlier "750 on-screen ⇒ 25 % width" mixed per-ADC ring addresses with
+    interleaved samples) to a variable
+    stop, leaving a 680–1480-address unwritten gap sitting ~950–1750 addresses past the
+    readout window (fresh off-window data in between); post-trigger
     fresh ≈ 2507 (finger held) — the ≈2500 estimate confirmed to the sample, and the earlier
     "3345 = fill" guess retracted (it is only the fw1 display offset). FPGA_NOTES §capture
     geometry. Follow-ups queued: per-run directory +

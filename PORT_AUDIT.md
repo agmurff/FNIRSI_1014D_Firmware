@@ -181,11 +181,13 @@ cross-firmware file exchange matters.
 
 - `sm_1014d.c` boot-switch calls `sd_card_write()` without `#include "sd_card_interface.h"`
   (port-introduced). Benign on ARM32 EABI, but add the include.
-- `PC_interface.c` calls `usb_CDC_in_ep_callback()` without including `cdc_class.h` —
-  **pre-existing upstream Atlan4 wart**, not port-introduced.
+- `menu.c` calls `usb_CDC_in_ep_callback()` without including `cdc_class.h` —
+  **pre-existing upstream Atlan4 wart**, not port-introduced. *(Corrected 2026-08-21: this
+  bullet originally blamed `PC_interface.c`, which already includes `cdc_class.h` in pristine
+  Atlan4 — the wart was in `menu.c`, as the §5 outcome row correctly records.)*
 - These are why `-Wno-error=implicit-function-declaration -Wno-error=implicit-int
-  -Wno-error=int-conversion` were added to CFLAGS for GCC 14. After fixing the first item,
-  only the pre-existing one remains.
+  -Wno-error=int-conversion` were added to CFLAGS for GCC 14. Both sites were fixed in the
+  §5 pass — zero implicit-declaration warnings remain.
 
 ### F8 — Imported `scope_calculate_sample_range_properties()` ignores `long_mode`. (INFO)
 
@@ -220,9 +222,11 @@ display path recomputes every frame and overwrites it — but keep in mind when 
 ## 4. Hardware-verify checklist (can't be settled statically)
 
 1. Timebase behavior after the F1 fix: step through the full range with the TIME rotary in
-   run and stop, across the long/short boundary (the 20/50 ms skip at indices 8↔11), and in
+   run and stop, across the long/short boundary — since F21 (2026-07-11) that boundary is
+   **roll for ≤500 ms only, crossing jumps 6↔11** (200/100/50/20 ms are sweep-only; the
+   original 20/50 ms skip at 8↔11 no longer exists) — and in
    single-trigger mode (should re-arm and show RUN).
-2. Overlay-menu compositing (fix pass §6): with the main menu, channel menus, sliders, and
+2. Overlay-menu compositing (fix pass §5, Enhancement): with the main menu, channel menus, sliders, and
    on/off panels open, traces should keep updating beneath the menu; the grid-brightness
    slider should now live-preview again. File view/item view must still suppress traces.
 3. Version string no longer overlaps (suffix removed; both variants display `v1.00o5`).
@@ -294,7 +298,7 @@ label; the suffixed strings right-aligned over it for anything longer than "5ns/
 auto-clock-search summary now lingers 3 s (was unreadably fast). The Grok clock-search
 repair earlier the same day is documented in FPGA_NOTES.md §"Auto clock search".
 
-## 5c. Screenshot-driven fix pass (2026-07-10 night — F12–F15, both variants rebuilt clean)
+## 5c. Bench-driven fix log, 2026-07-10 → 2026-07-17 — F12–F35 (began as the 2026-07-10 night screenshot pass)
 
 Root material: 12 bench BMPs (shorted inputs, before/after Base cal), analyzed
 pixel-level; the sawtooth findings from the same set are in FPGA_NOTES.md §"Screenshot
@@ -482,6 +486,8 @@ onto its (above-0) average leaves the flat line floating up (pre-trim the sawtoo
 = the ADC1 samples sits on 0, matching this). **Fix (next session):** mirror cal in the
 trim handler — when it changes `adc1compensation` by Δ, also add `Δ × dcoffsetstep` to
 `dc_calibration_offset` for the affected v/div so the flattened trace re-centres on 0.
+*(2026-08-21: never built and now retired — superseded by F25 (comps ≈0, so the trim lift is
+negligible); the residual-DC thread continues as F30.)*
 
 **F22 addendum — the 6-vs-10 gap is a regression I introduced, not a phantom (bench,
 2026-07-11).** Comparing against pecostm32's original 1014D firmware (which behaves better —
@@ -640,8 +646,10 @@ untestable 1013D and the PECO `fw_FPGA>1` paths are untouched): send `0x29/0x01`
 right after the trigger-enable, matching pecostm32 byte-for-byte. Both variants at baseline
 (257/266). **Prediction:** if `0x28` configures the interleave, the raw (comp=0) sawtooth drops
 toward pecostm32's ~11 mV — ideally letting us delete the comp/cal feature entirely and match
-him. **Follow-up if it helps:** the roll/long path (`fpga_set_time_base`, `fpga_control.c:603`)
-still has its `0x28/0x01` commented out — restore it there too for correct roll-mode sampling.
+him. **Follow-up if it helps:** the roll/long path (`fpga_set_long_timebase`, `fpga_control.c:599`
+— corrected 2026-08-21, earlier text misnamed `fpga_set_time_base`, which contains no `0x28`)
+still has its `0x28/0x01` commented out — restore it there too for correct roll-mode sampling
+(still commented as of 2026-08-21; deferred to a `test.c` roll-mode deep pass — see §5e).
 
 **CONFIRMED ON BENCH (2026-07-12): `0x28` was the root cause — the sawtooth is gone.** After
 the whole F21–F25 hunt, the entire artifact was the two FPGA writes Atlan4 commented out on a
@@ -712,6 +720,25 @@ tree's overlay compositing redraws it via `ui_redraw_active_menu()` instead). So
 meets Atlan4's engine: fonts (F10), config/reset defaults (F11), core call-site hooks
 (F12, F16), trace-window geometry (F13), data tables (F14, F15). The seam classes are now
 each audited; remaining risk is per-call-site behavioral drift, found only on the bench.
+
+## 5e. 2026-08-21 review pass (multi-agent code + docs review)
+
+Full-tree multi-agent review (code + AI-instruction docs, adversarially verified); findings
+live in `REVIEW-2026-08-21.md` at repo root. Doc corrections (this file, ROADMAP, FPGA_NOTES,
+CLAUDE.md, AGENTS.md, memory) and a 1014D code-fix pass landed the same day — **hw-verify
+pending** on all code items: the `uint16` wrap class (`traceposition` + time-cursor positions
+— signed local before the clamp), two more F16-class missing pushes (trigger-level re-push on
+v/div change; trigger-source swap off a disabled channel), the `!waveviewmode` guard restored
+in `sm_set_time_base()`, USB-CDC `f`-command + config-restore `totalsamples` clamps,
+`UINT32_SAMPLE_BUFFER_SIZE` round-up (2-byte overrun), X-Y negative-index guard, 1014D
+`get_fattime` fixed timestamp, RTC repaint block guarded, Base-cal `0x0E` restore, F28
+resolution frozen-zoom rescale, and acqprobe CH1 gating (+ analyzer). Still open: **F30**
+(Base-cal residual; F29's stale-value root cause stays under it), the **roll-mode `0x28/0x01`
+half of F25** (deferred to a `test.c` deep pass — the stock capture wants `0x0D` + `0x28/0x01`
+per read cycle, not just at mode entry), and **F35** (unreproduced). Variant policy settled
+2026-08-21: the user has **no 1013D hardware**, so the 1013D variant is deliberately left at
+Atlan4 behavior (a known divergence vs pecostm32's 1013D upstream — e.g. the F25 `0x28`
+restore stays `#if PORT_1014D`); it needs testing on real hardware before any claim.
 
 ## 6. Reproduction appendix
 
