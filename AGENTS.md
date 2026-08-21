@@ -175,3 +175,15 @@ not gate on a specific `navigationstate` — that pattern already caused the men
 bug once.
 
 **`ui_display_trigger_settings()` draws both top and bottom info** — When called from within `scope_display_trace_data()` (which targets `displaybuffertmp`), the top portion at y=6 is drawn to the offscreen buffer but never reaches the screen (copy rect starts at y=48). This is wasted work but harmless. Only the bottom portion at y=465 is inside the copy rect and reaches the screen.
+
+**CPU-infrastructure facts (2026-08-21 follow-up audit)** — (1) The D-cache is NOT actually
+on: `main()` sets the CP15 C bit but the MMU is never enabled, and on ARM926EJ-S data
+cacheability comes from the page tables — every data access runs uncached today (the I-cache
+does work). Don't "fix" this casually: the FPGA Port-E bus, all `0x01Cxxxxx`/`0x01Exxxxx`
+peripherals, and the DEBE-scanned framebuffer must stay uncacheable (ROADMAP 31). (2) Never
+re-enable IRQs inside an interrupt handler — `start.s` resets the IRQ stack pointer on every
+entry, so nesting corrupts the live frame. (3) USB mass-storage file I/O runs entirely in IRQ
+context with IRQs masked (see the invariant header atop `mass_storage_class.c`) — never add
+SD/FatFs access to anything reachable while the USB screen is up. (4) The six mode stacks are
+hard-wired in `start.s` (top 300 KB of DRAM; `main()` runs on the 50 KB SVC stack) — the
+linker script knows nothing about them, so no overflow is ever detected at link time.

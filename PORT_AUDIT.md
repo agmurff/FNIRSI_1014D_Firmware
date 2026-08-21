@@ -34,6 +34,11 @@ day — see §5 for outcomes (F2 was retracted on link-level verification).
 
 ## 1. Verified good
 
+*(Fidelity figures below are the 4a5fa61 / 2026-07-09 snapshot. Re-diffed 2026-08-21
+(REVIEW follow-up): `uart.c/.h` still hold; the rest have grown legitimate deltas from
+deliberate 1014D work — `clock_synthesizer.c/.h` ~51/12 non-blank lines, `menu_1014d.c`
+~533, `sm_1014d.c` ~490. The list documents import-time fidelity, not the current diff.)*
+
 - **Import fidelity.** `clock_synthesizer.c/.h` and `uart.c` are byte-identical to P14 modulo
   blank lines; `uart.h` = P14 + an added (now unreferenced) `GD_KEY_*` table.
   `menu_1014d.c` ← P14 `user_interface_functions.c` (5083 lines, 29 diff lines);
@@ -762,3 +767,36 @@ sed -i 's/PORT_1014D 0/PORT_1014D 1/' fnirsi_1013d_scope/port_config.h && make c
 md5sum fnirsi_1013d_scope/bootloader_1014d_base.bin \
        FNIRSI_1014D_Firmware/fnirsi_1014d_startup/dist/Debug/GNU_ARM-Linux/fnirsi_sd_card_bootloader.bin
 ```
+
+### §5e addendum — critic follow-up audits + fix wave 2 (2026-08-21, same day)
+
+The review's coverage critic named five never-audited areas; five sequential agents + an
+adversarial verifier closed them (28/28 findings confirmed; full record in
+REVIEW-2026-08-21.md's follow-up section). Actioned the same day, **hw-verify pending**:
+
+- **Roll mode root-caused and rebuilt (F21 closed in code).** Two renderer mechanisms (main
+  loop ran `scope_display_trace_data` during roll — now `!long_mode`-gated; roll sweep used
+  Atlan4 730-wide geometry — now P14 `(2,48,705,432)`/x≤704 on 1014D), plus the stock roll
+  FPGA sequence implemented from pecostm32-RE's ≥100 ms captures (`0x0D`+`0x7D0` and
+  `0x28/0x01` before every 0x24/0x26 read cycle via `fpga_arm_long_timebase_cycle()`, entry
+  `0x0D←0x27` "reset"; F25's other half), plus an ADC-space roll software trigger replacing
+  the `+25`/`multiply` screen mapping whose uint16 wrap had killed roll normal/single.
+- **USB MSC hardening:** read-error paths no longer stream stale data after a FAIL CSW
+  (transport desync), SD range guard made wrap-free (was one-past-end), the 1014D USB screen
+  now honors the host's PREVENT_MEDIUM_REMOVAL (`mounted_to_PC`) before disconnecting, and
+  the IRQ-context/serialization invariant is documented atop `mass_storage_class.c`.
+  Designed but NOT applied (host-side bench needed): the WRITE_10 one-packet-per-flush drop
+  and READ_FORMAT_CAPACITY's malformed reply (ROADMAP 33).
+- **FEL path:** I-cache invalidated before the BROM jump (stale-line hazard for the
+  write-then-re-execute sunxi-fel workflow).
+- **Infra facts recorded** (AGENTS.md gotchas, ROADMAP 31): D-cache inert without the MMU —
+  data runs uncached; stack map hard-wired in start.s; no IRQ nesting by construction;
+  1013D power-loss config save runs in IRQ context (unsafe mid-SD-write; noted, untestable).
+- **Mechanical closures:** v0.8 loader FPGA-wait dead-code claim re-derived and CONFIRMED;
+  `bootloader_1014d_base.bin` = byte-identical local rebuild confirmed (≠ pecostm32's shipped
+  bits, same source); §1 fidelity figures given a dated caveat; `tools/acqprobe_analyze.py`
+  got the fill-geometry units fix the docs had already received (window = samplecount/2 ring
+  addresses, trigger 50%), a seam-scan bin-boundary correction, and a code-review pass-OK.
+- **Loader trees:** the three tracked repo-root 1013D loader source trees assessed —
+  pristine upstream, provenance-only, neither committed bootloader comes from them; the
+  `startup_screen` make-clobber trap documented in CLAUDE.md.

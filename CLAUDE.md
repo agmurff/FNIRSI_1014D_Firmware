@@ -70,6 +70,16 @@ History: `main` = pristine pecostm32 1013D upstream; `PORT_A` = first-generation
   full 1014D board schematics, and per-timebase MCU↔FPGA bus captures ("FPGA explained").
   Pinout diff vs the Atlan4 project and flashing routes: FPGA_NOTES.md §pecostm32-RE.
 
+Also **tracked** at repo root (assessed 2026-08-21, REVIEW follow-up): three upstream 1013D
+loader/startup source trees, byte-identical to pecostm32's GitHub — **provenance-only**.
+`fnirsi_1013d_sd_card_bootloader/` (SPL, sector 16), `fnirsi_1013d_startup_screen/` (splash
+loader, sector 48, expects the scope at sector 92), `fnirsi_1013d_startup_from_sd_card/`
+(single-stage alternative, flagged unmaintained by upstream itself). None of them builds
+either committed `bootloader_*.bin` and nothing in the active build references them.
+**Never run `make` in these trees**: `fnirsi_1013d_startup_screen`'s post-build step copies
+its loader-only image over the active build's `fnirsi_1013d_scope/dist/.../fnirsi_1013d.bin`
+— a same-named, unbootable-as-scope SD image silently replacing the real artifact.
+
 ## Local bench data and host tools (added 2026-07-19)
 
 - `bench/` (untracked, self-gitignored via `bench/.gitignore`) — data off the scope, kept

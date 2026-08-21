@@ -3,7 +3,9 @@
 Consolidated from code spelunking 2026-07-09. The authoritative loader source for the
 current 1014D chain is vendored at `FNIRSI_1014D_Firmware/fnirsi_1014d_startup/` (pecostm32);
 the committed `fnirsi_1013d_scope/bootloader_1014d_base.bin` is a hash-verified local rebuild
-of it.
+of it (re-verified 2026-08-21: byte-identical to our rebuild of his source in the vendor
+tree's `dist/`; NOT bit-identical to the binary pecostm32 originally committed — different
+toolchain, same source).
 
 ## Boot chain on the 1014D today
 
@@ -32,6 +34,12 @@ The Atlan4/1013D loader chain has one: byte at **SD sector 710, offset 0x1F** (D
 `0x81BFFC1F`), values 0 = PECO / 1 = FNIRSI / 2 = FEL, bit `0x04` = show menu; sector-710
 checksum covers only the first words, so the byte is poke-safe. **pecostm32's 1014D loader
 never reads it** — its menu is key-hold-only, nothing is persistent.
+
+(Alignment postscript, verified 2026-08-21: the CP15 A bit is never set, so the `uint32*`
+*read* at `…1F` works via the ARMv5 rotated load — but a *store* through the same pointer
+lands on the whole word at `…1C`, stomping the touch X-swap config byte and zeroing `…1F`
+itself, so the boot choice never round-tripped through the Atlan4-era writer anyway; the
+1014D binary never even emits the access.)
 
 Consequences in the current tree:
 
@@ -123,7 +131,10 @@ clone):
   but **neither has a single call site** — a caller search over the whole image finds
   branches only to adjacent FPGA functions (e.g. `bl 0x126a4`, the cmd-`0x04` enable).
   The wait is compiled in but never called: **v0.8 boots regardless of the FPGA version
-  word**, which is exactly what a 0x1532/0x1632 replacement bitstream needs. Earlier
+  word**, which is exactly what a 0x1532/0x1632 replacement bitstream needs.
+  *Re-verified 2026-08-21 (independent re-disassembly): both routines reproduced at
+  `0x1340`/`0x125dc`, both `0x1432` literals located, zero call sites, no pointer
+  references — CONFIRMED.* Earlier
   loaders (fw0.02–0.04, and pecostm32's `fnirsi_1014d_startup`) call it live and hang
   before their boot menus.
 - **Our 1014D chain is NOT covered**: `bootloader_1014d_base.bin` (pecostm32's startup)

@@ -74,6 +74,14 @@ Written 2026-07-09 after the port audit + fix pass (PORT_AUDIT.md). Ordered roug
     the roll renderer itself looks geometry-broken on the 1014D (trace crawling past the
     right edge + a trace-area shadow at the wrong location) — suspected F17-class
     P14-vs-Atlan4 copy-rect geometry; needs its own pass.*
+    *2026-08-21: that pass ran (REVIEW follow-up) — root-caused and fixed in code, hw-verify
+    pending. TWO mechanisms: the main loop kept running the standard renderer during roll so
+    the two repainted over each other (now gated on `!long_mode`), and the roll sweep used
+    Atlan4's 730-wide rects/x≤726 over the P14 sidebar (now `(2,48,705,432)`/x≤704 on 1014D).
+    Also implemented: the stock roll FPGA sequence (`0x0D`+`0x28/0x01` before every 0x24/0x26
+    read cycle — F25's other half) and an ADC-space roll software trigger (the old
+    `+25`/`multiply` screen mapping was wrong away from centre and its uint16 wrap killed
+    normal/single in roll). Remaining roll UX: item 32.*
 13. **PC interface on the 1014D** — USB CDC (`cdc_class.c`/`PC_interface.c`) is compiled but
     only reachable from touch UI; wire a key/menu item to toggle MSC↔CDC (`USB_CH340`).
     Long-standing target shape (donwulff-notes.md): a **sigrok-compatible** data-logger /
@@ -273,3 +281,24 @@ bitstream (deeper/settable capture via 0x0B/0x0C) is a separate track (items 16�
     opamp swap: 50 mV/div is software zoom off the 100 mV/div hardware range (≈7-bit,
     FPGA_NOTES §capture geometry) — a real gain stage / higher-gain buffer could make it a
     hardware range, if the firmware scaling is taught about it.
+
+## 2026-08-21 review follow-ups (details: REVIEW-2026-08-21.md, follow-up section)
+
+31. **Enable the MMU + real D-cache — the largest single perf win on the table.** main()'s
+    D-cache enable is inert without the MMU on ARM926 (cacheability comes from page tables),
+    so ALL data accesses run uncached today. Prereqs mapped in the follow-up audit: flat
+    section map with DRAM write-back cacheable, the DEBE-scanned framebuffer write-through
+    or uncached, everything `0x01Cxxxxx`/`0x01Exxxxx` device-uncacheable (FPGA Port-E bus,
+    INTC, SD, USB FIFO, TCON/DEBE), cache clean/invalidate discipline at the DMA seams.
+32. **Roll wait loop should poll keys.** `scope_get_long_timebase_data`'s inter-sample wait
+    (up to 1 s/sample at 50 s/div) only exits by timeout on the 1014D — the touch-abort is a
+    stub — so keys feel dead in roll. Design: slice the wait and poll the key controller
+    between slices (needs a non-blocking or pushback-capable uart1 read).
+33. **MSC protocol repairs, designed but NOT applied (need host-side bench):** WRITE_10
+    silently drops one 512 B packet per staging-buffer flush (large-write corruption,
+    inherited from Atlan4/pecostm32); READ_FORMAT_CAPACITY replies with stale/zero bytes in
+    the wrong response format. The read-error desync + range-guard + eject-gate fixes DID
+    land 2026-08-21.
+34. **test.c dead-code sweep (extends item 7):** `scope_get_long_timebase_data1` (alternate
+    roll renderer), `fpga_average_trace_data_long`, the soft-float DSP helpers (one carries
+    a 16 KB stack array), and the CSV exporter — all uncalled yet linked into both variants.
