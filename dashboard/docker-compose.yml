@@ -13,6 +13,6 @@ services:
     environment:
       # The machine the scope is physically attached to.
       FNIRSI_MCP_URL: "${FNIRSI_MCP_URL:-http://10.0.20.172:8765/mcp}"
-      POLL_INTERVAL: "${POLL_INTERVAL:-3.0}"
+      POLL_INTERVAL: "${POLL_INTERVAL:-0.5}"
       CAPTURE_CH2: "${CAPTURE_CH2:-1}"
       WAVE_POINTS: "${WAVE_POINTS:-600}"
