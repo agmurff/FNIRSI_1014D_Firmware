@@ -4,10 +4,12 @@ services:
     container_name: fnirsi-dashboard
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      # Host port is configurable because 8080 is far from always free -- on the
+      # scadapc box it is already serving a SCADA web app.
+      - "${DASHBOARD_PORT:-9110}:8080"
     environment:
       # The machine the scope is physically attached to.
-      FNIRSI_MCP_URL: "http://10.0.20.172:8765/mcp"
-      POLL_INTERVAL: "3.0"
-      CAPTURE_CH2: "1"
-      WAVE_POINTS: "600"
+      FNIRSI_MCP_URL: "${FNIRSI_MCP_URL:-http://10.0.20.172:8765/mcp}"
+      POLL_INTERVAL: "${POLL_INTERVAL:-3.0}"
+      CAPTURE_CH2: "${CAPTURE_CH2:-1}"
+      WAVE_POINTS: "${WAVE_POINTS:-600}"
