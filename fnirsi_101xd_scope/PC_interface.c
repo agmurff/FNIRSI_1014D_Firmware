@@ -364,6 +364,15 @@ static void cdc_system_status(void)
     usb_send_uint("ch2_probe: ",    scopesettings.channel2.magnification);
     usb_send_uint("ch2_pos: ",      scopesettings.channel2.traceposition);
 
+    //What a remote renderer needs to reproduce the on-screen mapping exactly
+    //(scope_get_y_sample: px = (adc-128)*input_calibration[samplevoltperdiv] >> 21,
+    // y = 448 - (traceposition + px + dcoff), position space clamped 0..399):
+    usb_send_uint("ch1_cal: ",      scopesettings.channel1.input_calibration[scopesettings.channel1.samplevoltperdiv]);
+    usb_send_uint("ch2_cal: ",      scopesettings.channel2.input_calibration[scopesettings.channel2.samplevoltperdiv]);
+    cdc_send_int("ch1_dcoff: ",     (scopesettings.channel1.dc_shift_size != 0) ? ((scopesettings.channel1.dcoffset * 100) / scopesettings.channel1.dc_shift_size) : 0);
+    cdc_send_int("ch2_dcoff: ",     (scopesettings.channel2.dc_shift_size != 0) ? ((scopesettings.channel2.dcoffset * 100) / scopesettings.channel2.dc_shift_size) : 0);
+    usb_send_uint("trig_vpos: ",    scopesettings.triggerverticalposition);
+
     usb_send_uint("xymode: ",       scopesettings.xymodedisplay);
     usb_send_uint("fw_fpga: ",      fpgasettings.fw_FPGA);
 
@@ -383,26 +392,49 @@ static void cdc_wave_dump(const char *tail)
 {
     const uint8 *buf;
     const char  *name;
-    uint32 n, i;
+    uint32 n, i, sent, decim = 1;
 
     while(*tail == ' ')
         tail++;
 
     //Both trace buffers are declared uint32[] but are addressed as bytes throughout the
     //firmware -- scope_save_view_item_file() writes them as (uint8 *) too.
-    if(my_strcasecmp(tail, "CH1") == 0)
+    if(my_strncasecmp(tail, "CH1", 3) == 0)
     {
         buf  = (const uint8 *)channel1tracebuffer;
         name = "CH1";
     }
-    else if(my_strcasecmp(tail, "CH2") == 0)
+    else if(my_strncasecmp(tail, "CH2", 3) == 0)
     {
         buf  = (const uint8 *)channel2tracebuffer;
         name = "CH2";
     }
     else
     {
-        cdc_err("usage: :WAV:DATA? CH1|CH2");
+        cdc_err("usage: :WAV:DATA? CH1|CH2 [decimation]");
+        return;
+    }
+
+    //Optional decimation: send every Nth sample. The full 3000-sample hex dump is what
+    //bounds a live-view poll cycle (the serial link is only serviced once per acquisition
+    //loop), so letting the host ask for every 5th sample cuts the transfer by that factor.
+    tail += 3;
+    while(*tail == ' ')
+        tail++;
+
+    if((*tail >= '0') && (*tail <= '9'))
+    {
+        decim = my_atoul(tail);
+
+        if(decim < 1)
+            decim = 1;
+
+        if(decim > 64)
+            decim = 64;
+    }
+    else if(*tail != 0)
+    {
+        cdc_err("usage: :WAV:DATA? CH1|CH2 [decimation]");
         return;
     }
 
@@ -411,17 +443,25 @@ static void cdc_wave_dump(const char *tail)
     if(n > MAX_SAMPLE_BUFFER_SIZE)
         n = MAX_SAMPLE_BUFFER_SIZE;
 
-    //Header first, so the host knows how many samples to expect before the hex starts
+    sent = (n + decim - 1) / decim;
+
+    //Header first, so the host knows how many samples to expect before the hex starts:
+    //"#WAV <ch> <count> <decimation>", count being the number actually transmitted
     usb_CDC_send_text("#WAV ");
     usb_CDC_send_text(name);
-    usb_send_uint(" ", n);
+    usb_CDC_send_text(" ");
+    usb_send_uint("", sent);
+    usb_send_uint("decim: ", decim);
     usb_CDC_in_ep_callback();
 
-    for(i = 0; i < n; i++)
+    sent = 0;
+
+    for(i = 0; i < n; i += decim)
     {
         send_hex_byte(buf[i]);
+        sent++;
 
-        if(((i + 1) % CDC_WAV_PER_LINE) == 0)
+        if((sent % CDC_WAV_PER_LINE) == 0)
         {
             usb_CDC_send_text("\n");
             usb_CDC_in_ep_callback();
@@ -429,7 +469,7 @@ static void cdc_wave_dump(const char *tail)
     }
 
     //Terminate a partial final line
-    if((n % CDC_WAV_PER_LINE) != 0)
+    if((sent % CDC_WAV_PER_LINE) != 0)
     {
         usb_CDC_send_text("\n");
         usb_CDC_in_ep_callback();

@@ -95,6 +95,7 @@ class ScopeError(RuntimeError):
 class Waveform:
     channel: str
     samples: list = field(default_factory=list)   # raw ADC bytes, 0..255
+    decimation: int = 1                           # firmware sent every Nth sample
     seconds_per_div: Optional[float] = None
     volts_per_div: Optional[float] = None
     timebase_label: Optional[str] = None
@@ -339,19 +340,35 @@ class FnirsiScope:
         }
 
     # -- waveform ----------------------------------------------------------
-    def capture(self, channel: str = "CH1", with_scaling: bool = True) -> Waveform:
+    def capture(self, channel: str = "CH1", with_scaling: bool = True,
+                decimation: int | None = None) -> Waveform:
         """
         Read the raw acquisition buffer for one channel.
 
         Samples are raw ADC bytes (0..255, mid-scale ~128). Converting these to volts
         needs the per-channel calibration the firmware holds but does not expose, so
         this deliberately does not fabricate a voltage axis.
+
+        decimation asks the FIRMWARE to send every Nth sample (1..64), cutting the
+        transfer time by that factor -- the full hex dump is what bounds a live-view
+        poll. Older firmware without the argument gets one automatic retry without it.
         """
         ch = channel.upper()
         if ch not in ("CH1", "CH2"):
             raise ValueError("channel must be CH1 or CH2")
 
-        lines = self.command(f":WAV:DATA? {ch}", read_timeout=30.0)
+        cmd = f":WAV:DATA? {ch}"
+        if decimation and int(decimation) > 1:
+            cmd += f" {int(decimation)}"
+
+        try:
+            lines = self.command(cmd, read_timeout=30.0)
+        except ScopeError:
+            if decimation and int(decimation) > 1:
+                # Firmware predating the decimation argument
+                lines = self.command(f":WAV:DATA? {ch}", read_timeout=30.0)
+            else:
+                raise
         if not lines or not lines[0].startswith("#WAV"):
             raise ScopeError(f"unexpected waveform header: {lines[:1]}")
 
@@ -360,7 +377,14 @@ class FnirsiScope:
             raise ScopeError(f"malformed waveform header: {lines[0]!r}")
         expected = int(header[2])
 
-        hex_text = "".join(lines[1:])
+        # Newer firmware follows the header with a "decim: N" line
+        wire_decim = 1
+        body = lines[1:]
+        if body and body[0].startswith("decim:"):
+            wire_decim = int(body[0].split(":", 1)[1])
+            body = body[1:]
+
+        hex_text = "".join(body)
         if len(hex_text) % 2:
             raise ScopeError("odd number of hex characters in waveform payload")
 
@@ -372,6 +396,7 @@ class FnirsiScope:
             )
 
         wf = Waveform(channel=ch, samples=samples)
+        wf.decimation = wire_decim
 
         if with_scaling:
             st = self.status()

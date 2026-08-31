@@ -13,6 +13,18 @@ services:
     environment:
       # The machine the scope is physically attached to.
       FNIRSI_MCP_URL: "${FNIRSI_MCP_URL:-http://10.0.20.172:8765/mcp}"
-      POLL_INTERVAL: "${POLL_INTERVAL:-0.5}"
+      POLL_INTERVAL: "${POLL_INTERVAL:-0.2}"
       CAPTURE_CH2: "${CAPTURE_CH2:-1}"
-      WAVE_POINTS: "${WAVE_POINTS:-600}"
+      WIRE_DECIMATION: "${WIRE_DECIMATION:-5}"
+
+  # Public URL via a Cloudflare quick tunnel. The hostname is RANDOM and changes on
+  # every restart of this container; read it from its logs:
+  #     docker logs fnirsi-tunnel 2>&1 | grep trycloudflare
+  # No authentication in front of it -- see the warning on the page itself.
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: fnirsi-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --url http://fnirsi-dashboard:8080
+    depends_on:
+      - fnirsi-dashboard

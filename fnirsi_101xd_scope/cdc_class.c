@@ -1,4 +1,5 @@
 #include "types.h"
+#include "port_config.h"
 #include "cdc_class.h"
 #include "usb_interface.h" /* for usb_read_from_fifo / usb_write_ep2_data etc. */
 #include <string.h>
@@ -162,7 +163,12 @@ const uint8 str_vendor[14] = {
 const uint8 str_ret[26] = {
     0x1A, 0x03,   // 26 bytes = 2 + (12 characters * 2)
     'F',0,'N',0,'I',0,'R',0,'S',0,'I',0,' ',0,
+#if PORT_1014D
+    //dmesg on a host used to log "Product: FNIRSI 1013D" for a 1014D
+    '1',0,'0',0,'1',0,'4',0,'D',0
+#else
     '1',0,'0',0,'1',0,'3',0,'D',0
+#endif
 };
 
 /*

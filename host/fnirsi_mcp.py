@@ -128,9 +128,14 @@ def measure(channel: str = "CH1") -> dict:
 
 
 @mcp.tool()
-def capture_waveform(channel: str = "CH1", max_points: int = 512) -> dict:
+def capture_waveform(channel: str = "CH1", max_points: int = 512,
+                     decimation: int = 1) -> dict:
     """
     Capture the raw trace buffer for CH1 or CH2.
+
+    decimation asks the firmware to transmit every Nth sample (1-64), cutting the
+    serial transfer time by that factor -- use ~5 for a fast live view, 1 for full
+    resolution. Older firmware ignores it via an automatic fallback.
 
     Samples are raw ADC bytes (0-255, mid-scale ~128); no voltage axis is fabricated,
     because the per-channel calibration is not exposed by the firmware. Returns
@@ -138,8 +143,8 @@ def capture_waveform(channel: str = "CH1", max_points: int = 512) -> dict:
     max_points so a full 16382-sample trace does not flood the conversation. Set
     max_points to 0 to omit the samples entirely.
     """
-    def go(s, channel, max_points):
-        wf = s.capture(channel)
+    def go(s, channel, max_points, decimation):
+        wf = s.capture(channel, decimation=decimation)
         samples = wf.samples
         result = {
             "channel": wf.channel,
@@ -153,6 +158,7 @@ def capture_waveform(channel: str = "CH1", max_points: int = 512) -> dict:
             "mean": round(sum(samples) / len(samples), 2) if samples else None,
             "peak_to_peak": (max(samples) - min(samples)) if samples else None,
             "units": "raw ADC counts (0-255, mid-scale 128)",
+            "wire_decimation": wf.decimation,
         }
         if max_points and samples:
             step = max(1, len(samples) // max_points)
@@ -160,7 +166,7 @@ def capture_waveform(channel: str = "CH1", max_points: int = 512) -> dict:
             result["decimation"] = step
         return result
 
-    return _guarded(go)(channel, max_points)
+    return _guarded(go)(channel, max_points, decimation)
 
 
 @mcp.tool()
