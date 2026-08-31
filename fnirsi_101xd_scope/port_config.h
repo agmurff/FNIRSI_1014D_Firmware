@@ -10,6 +10,15 @@
 //Set to 1 for boot-stage boxes and heartbeat/FPGA status overlay during bring-up
 #define PORT_A_KEYDEBUG 0
 
+//Bench bring-up only: force USB into CDC/serial mode (USB_CH340=1) at boot.
+//The 1014D has no UI path to the MSC<->CDC toggle (menu.c's toggle is touch-gated and
+//tp_i2c_read_status() is a 1014D stub), and scope_load_configuration_data() restores
+//USB_CH340 from the saved config sector *before* usb_device_init() runs -- so changing
+//only the reset default in scope_reset_config_data() does NOT survive an existing saved
+//config. This overrides after the config load. Costs USB mass storage while set.
+//Set back to 0 once the Factory-settings USB-mode entry exists (ROADMAP item 13).
+#define FORCE_USB_CDC 0
+
 #if PORT_A_KEYDEBUG
 #define DBG_STAGE(n) do { int _dbgi; \
     display_set_screen_buffer((uint16 *)maindisplaybuffer); \

@@ -9,6 +9,7 @@
 #include "scope_functions.h"
 #include "display_lib.h"
 #include "clock_synthesizer.h"
+#include "usb_interface.h"
 
 #include "variables.h"
 
@@ -2648,6 +2649,7 @@ void sm_open_on_off_setting(void)
 //----------------------------------------------------------------------------------------------------------------------------------
 
 static void sm_do_acquisition_probe(void);
+static void sm_toggle_usb_mode(void);
 
 void sm_open_factory_menu(void)
 {
@@ -2685,9 +2687,9 @@ void sm_handle_factory_menu_actions(void)
       //Limit it on the range for this menu
       if(newitem < 0)
       {
-        newitem = 4;
+        newitem = 5;
       }
-      else if(newitem > 4)
+      else if(newitem > 5)
       {
         newitem = 0;
       }
@@ -2721,9 +2723,49 @@ void sm_handle_factory_menu_actions(void)
         case 4:
           sm_do_acquisition_probe();
           break;
+
+        case 5:
+          sm_toggle_usb_mode();
+          break;
       }
       break;
   }
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------
+//USB mode toggle (ROADMAP item 13). Until now the 1014D had no way to reach USB_CH340 at
+//all: menu.c's toggle lives inside a while(1) touch-polling loop and tp_i2c_read_status()
+//is a stub on this variant, so mass storage and serial could only be traded at build time.
+//
+//Follows the disable -> set flag -> re-init -> enable sequence menu.c uses, then persists
+//the choice, since USB_CH340 round-trips through the checksummed config sector.
+
+static void sm_toggle_usb_mode(void)
+{
+  //Stop the interface before the device class changes underneath the host
+  usb_device_disable();
+
+  //usb_device_disable() only clears SOFT_CONNECT, and usb_device_init() re-asserts
+  //DPDM_PULLUP_EN in ISCR, so D+ never actually drops and the host keeps serving the old
+  //device node -- the class change stays invisible until the cable is physically pulled.
+  //Drop the pull-up explicitly and hold it low well past any host debounce, so the switch
+  //looks like a genuine unplug/replug. usb_device_init() re-asserts ISCR on the way back up.
+  *USBC_REG_ISCR &= ~USBC_BP_ISCR_DPDM_PULLUP_EN;
+  timer0_delay(1000);
+
+  USB_CH340 ^= 1;
+
+  //Re-register descriptors and attach the matching interrupt handler for the new class
+  usb_device_init();
+
+  //usb_device_init() only self-enables on the CDC path, so enable here for both
+  usb_device_enable();
+
+  //Persist, so the mode survives a power cycle instead of reverting to mass storage
+  scope_save_configuration_data();
+
+  //Repaint so the row shows the mode just switched to
+  ui_display_factory_menu(FACTORY_MENU_XPOS, FACTORY_MENU_YPOS);
 }
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -2955,6 +2997,16 @@ void sm_enter_fel_mode(void)
   display_set_fg_color(COLOR_WHITE);
   display_set_font(&font_1);
   display_text(360, 230, "Running FEL mode");
+
+  //Drop off the USB bus before handing over. Without this the host keeps a live device node
+  //for firmware that is no longer running, the boot ROM's own FEL enumeration never
+  //establishes, and the scope looks hung: USB still answers from the interrupt handler while
+  //the main loop is gone. usb_device_disable() alone is not enough -- it only clears
+  //SOFT_CONNECT, while DPDM_PULLUP_EN in ISCR keeps D+ asserted -- so drop that too and hold
+  //the line low long enough for the host to notice the disconnect.
+  usb_device_disable();
+  *USBC_REG_ISCR &= ~USBC_BP_ISCR_DPDM_PULLUP_EN;
+  timer0_delay(500);
 
   //No more interrupt handling; the boot ROM sets up its own environment
   arm32_interrupt_disable();

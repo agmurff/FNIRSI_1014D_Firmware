@@ -26,7 +26,11 @@ uint8  current_speed = USB_SPEED_UNKNOWN;
 uint32 usb_connect = 0;
 int32  usb_ep0_state = EP0_IDLE;
 
-uint8 bufferCDC[64]; //max is 512
+//Sized to the EP2 bulk max packet (*USBC_REG_RXMAXP = CDC_BULK_MAX_PACKET). This was
+//uint8[64] while the endpoint was configured for 512, so any host write >64 bytes in a
+//single packet overran it through adjacent globals -- latent while only the 1-3 byte
+//'a'..'k' debug commands were ever sent, reachable as soon as longer command lines are.
+uint8 bufferCDC[CDC_BULK_MAX_PACKET];
 uint32 lenCDC = 0;
 
 extern volatile uint32 msc_state;
@@ -1408,12 +1412,19 @@ void usb_device_CDC_irq_handler(void)
       //uint8 buffer[64]; //max is 512
       lenCDC = *USBC_REG_RXCOUNT; // počet prijatých bajtov
 
+      //Defensive clamp: never copy more than the staging buffer holds, whatever the
+      //hardware reports in RXCOUNT.
+      if(lenCDC > sizeof(bufferCDC))
+        lenCDC = sizeof(bufferCDC);
+
       // Prečítaj dáta z FIFO
       usb_read_from_fifo((void *)USBC_REG_EPFIFO2, bufferCDC, lenCDC);
-      //usb_CDC_out_ep_callback(buffer, len);
-      //usb_CDC_receive_callback(buffer, len); 
-      
-      usb_CDC_receive_callback();
+
+      //Push the bytes into the RX ring and return. The command dispatcher runs in the
+      //main loop (usb_CDC_process_rx in PC_interface.c), NOT here: this is the EP2
+      //interrupt callback, and the old in-ISR parser touched global display state,
+      //busy-waited on the TX endpoint, and could reach FatFs via scope_save_view_item_file.
+      usb_CDC_out_ep_callback(bufferCDC, lenCDC);
       
 
       
@@ -1480,6 +1491,20 @@ uint32 k = 20;
 //void usb_CDC_receive_callback(uint8 *data, uint32 len)
 void usb_CDC_receive_callback(void)
 {
+    //SUPERSEDED, and deliberately inert. Nothing calls this any more: the EP2 handler feeds
+    //the RX ring via usb_CDC_out_ep_callback(), and commands are dispatched from the main
+    //loop by usb_CDC_process_rx() in PC_interface.c.
+    //
+    //The body below is kept for reference only. Running it in EP2 interrupt context was
+    //actively unsafe: it wrote global display state (font/colour) over whatever the main loop
+    //was drawing; it called scope_save_view_item_file() on 'e1', i.e. FatFs f_open/f_write
+    //from an interrupt, racing the main loop for the same SD card; it busy-waited on the TX
+    //endpoint; and the 'c' and 'i' commands aliased the parser's own loop variables, so they
+    //corrupted the parse rather than setting anything.
+    //
+    //Add new commands to cdc_dispatch() in PC_interface.c instead of re-enabling this.
+    return;
+
      
     display_set_font(&font_2);
     display_set_fg_color(WHITE_COLOR);

@@ -73,7 +73,7 @@
 //the same bottom edge (472) inside the 480 px screen
 #define FACTORY_MENU_YPOS               309
 #define FACTORY_MENU_WIDTH              170
-#define FACTORY_MENU_HEIGHT             163
+#define FACTORY_MENU_HEIGHT             194
 
 //Sampling clock menu, opens next to the factory menu (seven items of 31 each plus border;
 //moved up so the taller menu stays on screen)

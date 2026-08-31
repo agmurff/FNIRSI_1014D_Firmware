@@ -5224,13 +5224,16 @@ HIGHLIGHTRECTDATA factory_menu_highlight_box =
   COLOR_BLACK
 };
 
-const char *factory_menu_texts[5] =
+//Entry 5 is relabelled on every draw to show the live USB mode -- see
+//ui_display_factory_menu(). The initial value is only a placeholder.
+const char *factory_menu_texts[6] =
 {
   "Restore defaults",
   "Reboot",
   "FEL firmware update",
   "Sampling clock",
-  "Acquisition probe"
+  "Acquisition probe",
+  "USB mode: MSC"
 };
 
 //----------------------------------------------------------------------------------------------------------------------------------
@@ -5296,8 +5299,11 @@ void ui_display_factory_menu(uint16 xpos, uint16 ypos)
   display_set_fg_color(COLOR_WHITE);
   display_set_font(&font_1);
 
+  //The USB row shows the mode it is currently in, so the label has to track USB_CH340
+  factory_menu_texts[5] = (USB_CH340 == 1) ? "USB mode: CDC" : "USB mode: MSC";
+
   //Draw the label per line
-  for(i=0;i<5;i++)
+  for(i=0;i<6;i++)
   {
     display_text(xpos + 12, ypos + 11 + (i * 31), factory_menu_texts[i]);
   }

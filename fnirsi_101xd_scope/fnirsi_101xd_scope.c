@@ -140,6 +140,14 @@ int main(void)
 
   //Load configuration data from FLASH
   scope_load_configuration_data();
+
+#if FORCE_USB_CDC
+  //Bench bring-up override (port_config.h): the loaded config sector carries USB_CH340 and
+  //would otherwise put the scope back into mass-storage mode. Must sit after the load and
+  //before usb_device_init(), which picks the IRQ handler on the strength of this flag.
+  USB_CH340 = 1;
+#endif
+
   //if (dev_mode)
   //Setup the USB interface
   usb_device_init();
@@ -433,6 +441,13 @@ int main(void)
     //if (e==1) {timer0_delay(500);scope_save_view_item_file(VIEW_TYPE_PICTURE); e=0;}
     
     
+    //--------------------------------------------------------------------------
+
+    //Service the USB CDC command interface. Main-loop context, so replies may take as
+    //long as they need; only meaningful when the USB stack came up in CDC mode.
+    if(USB_CH340 == 1)
+      usb_CDC_process_rx();
+
     //--------------------------------------------------------------------------
 
     //Handle user input

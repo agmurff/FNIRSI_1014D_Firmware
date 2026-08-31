@@ -24,6 +24,7 @@
 #include "usb_interface.h"
 #include "cdc_class.h"
 #include "variables.h"
+#include "menu_1014d.h"
 
 #include "PC_interface.h"
 
@@ -245,32 +246,605 @@ void usb_CDC_send_data(uint8 *data, uint32 length)
 }
 */
 
-// Spracovanie prijatých dát z USB (vola sa napr. v hlavnej slučke)
+//==============================================================================
+// Line-oriented command dispatcher -- main-loop serviced
+//==============================================================================
+// Framing contract (follows the #END / #ERR convention already used in this tree):
+//   every command emits zero or more response lines, then exactly one "#END" line.
+//   Setters that succeed emit "#OK" first. Failures emit "#ERR <reason>".
+//   A host can therefore always read until "#END".
+//
+// Values on the wire are raw firmware indices / struct values, NOT engineering units:
+// the firmware works in table indices throughout (time_div_texts[35] etc.) and has no
+// printf. Unit conversion belongs on the host, where it can be done properly.
+//
+// This runs from the main loop, not from the EP2 interrupt callback, so a reply is free
+// to be slow. Bulk waveform transfer (:WAV:DATA?) belongs here too, for the same reason.
+
+#define CDC_CMD_BUF_SIZE   128
+
+//------------------------------------------------------------------------------
+static void cdc_end(void)
+{
+    usb_CDC_send_text("#END\n");
+}
+
+static void cdc_ok(void)
+{
+    usb_CDC_send_text("#OK\n");
+    cdc_end();
+}
+
+static void cdc_err(const char *reason)
+{
+    usb_CDC_send_text("#ERR ");
+    usb_CDC_send_text(reason);
+    usb_CDC_send_text("\n");
+    cdc_end();
+}
+
+//Unsigned scalar reply
+static void cdc_uval(uint32 v)
+{
+    usb_send_uint("", v);
+    cdc_end();
+}
+
+//Signed scalar reply (measurements and the horizontal position can be negative)
+static void cdc_send_int(const char *label, int32 v)
+{
+    usb_CDC_send_text(label);
+
+    if(v < 0)
+    {
+        usb_CDC_send_text("-");
+        v = -v;
+    }
+
+    usb_send_uint("", (uint32)v);
+}
+
+static void cdc_ival(int32 v)
+{
+    cdc_send_int("", v);
+    cdc_end();
+}
+
+//------------------------------------------------------------------------------
+//Per-channel queries. Returns 1 if the tail was recognised, 0 otherwise.
+static int cdc_channel_query(const char *tail, CHANNELSETTINGS *ch)
+{
+    if(my_strcasecmp(tail, "STAT?")    == 0) { cdc_uval(ch->enable);             return 1; }
+    if(my_strcasecmp(tail, "VOLTDIV?") == 0) { cdc_uval(ch->displayvoltperdiv);  return 1; }
+    if(my_strcasecmp(tail, "SAMPDIV?") == 0) { cdc_uval(ch->samplevoltperdiv);   return 1; }
+    if(my_strcasecmp(tail, "COUPL?")   == 0) { cdc_uval(ch->coupling);           return 1; }
+    if(my_strcasecmp(tail, "PROBE?")   == 0) { cdc_uval(ch->magnification);      return 1; }
+    if(my_strcasecmp(tail, "POS?")     == 0) { cdc_uval(ch->traceposition);      return 1; }
+    if(my_strcasecmp(tail, "INV?")     == 0) { cdc_uval(ch->invert);             return 1; }
+
+    //Measurements from the most recent completed acquisition
+    if(my_strcasecmp(tail, "MIN?")     == 0) { cdc_ival(ch->min);                return 1; }
+    if(my_strcasecmp(tail, "MAX?")     == 0) { cdc_ival(ch->max);                return 1; }
+    if(my_strcasecmp(tail, "AVG?")     == 0) { cdc_ival(ch->average);            return 1; }
+    if(my_strcasecmp(tail, "CENTER?")  == 0) { cdc_ival(ch->center);             return 1; }
+    if(my_strcasecmp(tail, "PP?")      == 0) { cdc_ival(ch->peakpeak);           return 1; }
+    if(my_strcasecmp(tail, "RMS?")     == 0) { cdc_uval(ch->rms);                return 1; }
+
+    return 0;
+}
+
+//------------------------------------------------------------------------------
+static void cdc_system_status(void)
+{
+    usb_send_uint("runstate: ",     scopesettings.runstate);
+    usb_send_uint("timeperdiv: ",   scopesettings.timeperdiv);
+    usb_send_uint("samplerate: ",   scopesettings.samplerate);
+    usb_send_uint("long_mode: ",    scopesettings.long_mode);
+    usb_send_uint("samplecount: ",  scopesettings.samplecount);
+    usb_send_uint("nofsamples: ",   scopesettings.nofsamples);
+    usb_send_uint("totalsamples: ", fpgasettings.totalsamples);
+    usb_send_uint("acq_trace: ",    scopesettings.ACQ_trace);
+    usb_send_uint("average_mode: ", scopesettings.average_mode);
+
+    usb_send_uint("trig_channel: ", scopesettings.triggerchannel);
+    usb_send_uint("trig_mode: ",    scopesettings.triggermode);
+    usb_send_uint("trig_edge: ",    scopesettings.triggeredge);
+    usb_send_uint("trig_level: ",   scopesettings.triggerlevel);
+    cdc_send_int("trig_hpos: ",     scopesettings.triggerhorizontalposition);
+
+    usb_send_uint("ch1_enable: ",   scopesettings.channel1.enable);
+    usb_send_uint("ch1_voltdiv: ",  scopesettings.channel1.displayvoltperdiv);
+    usb_send_uint("ch1_coupling: ", scopesettings.channel1.coupling);
+    usb_send_uint("ch1_probe: ",    scopesettings.channel1.magnification);
+    usb_send_uint("ch1_pos: ",      scopesettings.channel1.traceposition);
+
+    usb_send_uint("ch2_enable: ",   scopesettings.channel2.enable);
+    usb_send_uint("ch2_voltdiv: ",  scopesettings.channel2.displayvoltperdiv);
+    usb_send_uint("ch2_coupling: ", scopesettings.channel2.coupling);
+    usb_send_uint("ch2_probe: ",    scopesettings.channel2.magnification);
+    usb_send_uint("ch2_pos: ",      scopesettings.channel2.traceposition);
+
+    usb_send_uint("xymode: ",       scopesettings.xymodedisplay);
+    usb_send_uint("fw_fpga: ",      fpgasettings.fw_FPGA);
+
+    cdc_end();
+}
+
+//------------------------------------------------------------------------------
+// Waveform dump. Hex, not raw binary, for two reasons: usb_CDC_send_text() measures its
+// argument with a NUL scan so it cannot carry arbitrary bytes, and hex survives a plain
+// terminal. Cost is 2 chars/sample, which is irrelevant next to the USB link.
+//
+// The 32 KB TX ring SILENTLY TRUNCATES when full (usb_CDC_send_text clamps to free space),
+// so the ring is flushed every line rather than queueing the whole trace and hoping.
+#define CDC_WAV_PER_LINE   32
+
+static void cdc_wave_dump(const char *tail)
+{
+    const uint8 *buf;
+    const char  *name;
+    uint32 n, i;
+
+    while(*tail == ' ')
+        tail++;
+
+    //Both trace buffers are declared uint32[] but are addressed as bytes throughout the
+    //firmware -- scope_save_view_item_file() writes them as (uint8 *) too.
+    if(my_strcasecmp(tail, "CH1") == 0)
+    {
+        buf  = (const uint8 *)channel1tracebuffer;
+        name = "CH1";
+    }
+    else if(my_strcasecmp(tail, "CH2") == 0)
+    {
+        buf  = (const uint8 *)channel2tracebuffer;
+        name = "CH2";
+    }
+    else
+    {
+        cdc_err("usage: :WAV:DATA? CH1|CH2");
+        return;
+    }
+
+    n = scopesettings.samplecount;
+
+    if(n > MAX_SAMPLE_BUFFER_SIZE)
+        n = MAX_SAMPLE_BUFFER_SIZE;
+
+    //Header first, so the host knows how many samples to expect before the hex starts
+    usb_CDC_send_text("#WAV ");
+    usb_CDC_send_text(name);
+    usb_send_uint(" ", n);
+    usb_CDC_in_ep_callback();
+
+    for(i = 0; i < n; i++)
+    {
+        send_hex_byte(buf[i]);
+
+        if(((i + 1) % CDC_WAV_PER_LINE) == 0)
+        {
+            usb_CDC_send_text("\n");
+            usb_CDC_in_ep_callback();
+        }
+    }
+
+    //Terminate a partial final line
+    if((n % CDC_WAV_PER_LINE) != 0)
+    {
+        usb_CDC_send_text("\n");
+        usb_CDC_in_ep_callback();
+    }
+
+    cdc_end();
+}
+
+//==============================================================================
+// Setters
+//==============================================================================
+// Every setter drives the firmware's OWN handler rather than writing scopesettings
+// directly, because each setting has side effects that must reach the FPGA: a raw struct
+// write leaves the hardware on the previous value and silently desynchronises the scope.
+//
+// The dial handlers (sm_set_time_base, sm_set_channel_sensitivity) take a *delta* through
+// the global 'setvalue', so absolute commands compute the delta, drive the handler once,
+// then restore the dial default.
+//
+// The bodies sit behind PORT_1014D because those sm_/ui_ handlers live in the
+// whole-file-guarded 1014D modules, while PC_interface.c itself is always compiled.
+
+//Parse an unsigned decimal, requiring at least one digit. Returns 0 on a malformed argument.
+static int cdc_parse_uint(const char *s, uint32 *out)
+{
+    while(*s == ' ')
+        s++;
+
+    if((*s < '0') || (*s > '9'))
+        return 0;
+
+    *out = my_atoul(s);
+
+    return 1;
+}
+
+//------------------------------------------------------------------------------
+static void cdc_set_timebase(const char *arg)
+{
+    uint32 target;
+
+    if(!cdc_parse_uint(arg, &target))
+    {
+        cdc_err("expected a timebase index");
+        return;
+    }
+
+    if(target > 34)
+    {
+        cdc_err("timebase index out of range (0-34)");
+        return;
+    }
+
+#if PORT_1014D
+    {
+        int32 delta = (int32)target - (int32)scopesettings.timeperdiv;
+
+        if(delta != 0)
+        {
+            int8 saved = setvalue;
+
+            //sm_set_time_base() is the dial handler and does the whole job: long/short regime
+            //selection, the FPGA timebase command, sample rate, re-arm in single mode, and
+            //the display. Writing scopesettings.timeperdiv here would leave the FPGA behind.
+            setvalue = (int8)delta;
+            sm_set_time_base();
+            setvalue = saved;
+        }
+
+        //It deliberately remaps indices 7..10 (the roll/sweep overlap where
+        //200ms/100ms/50ms/20ms appear in both blocks), so report what actually stuck rather
+        //than echoing back what was asked for.
+        usb_send_uint("timeperdiv: ", scopesettings.timeperdiv);
+        cdc_ok();
+    }
+#else
+    cdc_err("not supported on this build variant");
+#endif
+}
+
+//------------------------------------------------------------------------------
+static void cdc_set_trigger_level(const char *arg)
+{
+    uint32 target;
+
+    if(!cdc_parse_uint(arg, &target))
+    {
+        cdc_err("expected a level");
+        return;
+    }
+
+    if(target > 255)
+    {
+        cdc_err("trigger level out of range (0-255)");
+        return;
+    }
+
+#if PORT_1014D
+    {
+        uint32 voltperdiv;
+        int32  traceposition;
+        int32  dcoffset;
+
+        //fpga_set_trigger_level() derives the ADC level from the on-screen marker position,
+        //so solve its formula backwards for the position that yields the requested level.
+        //Assigning scopesettings.triggerlevel directly would just be recomputed over.
+        if(scopesettings.triggerchannel == 0)
+        {
+            voltperdiv    = scopesettings.channel1.samplevoltperdiv;
+            traceposition = scopesettings.channel1.traceposition;
+            dcoffset      = (scopesettings.channel1.dcoffset * 100) / scopesettings.channel1.dc_shift_size;
+        }
+        else
+        {
+            voltperdiv    = scopesettings.channel2.samplevoltperdiv;
+            traceposition = scopesettings.channel2.traceposition;
+            dcoffset      = (scopesettings.channel2.dcoffset * 100) / scopesettings.channel2.dc_shift_size;
+        }
+
+        scopesettings.triggerverticalposition =
+            (uint16)(((((int32)target - 128) * signal_adjusters[voltperdiv]) >> VOLTAGE_SHIFTER)
+                     + traceposition + dcoffset);
+
+        ui_display_trigger_vertical_position();
+        fpga_set_trigger_level();
+
+        //Report what the FPGA actually took: the marker is quantised to screen pixels, so the
+        //achieved level can sit a count or two off the requested one.
+        usb_send_uint("trig_level: ", scopesettings.triggerlevel);
+        cdc_ok();
+    }
+#else
+    cdc_err("not supported on this build variant");
+#endif
+}
+
+//------------------------------------------------------------------------------
+//which: 0 = source/channel, 1 = mode, 2 = edge
+static void cdc_set_trigger_field(const char *arg, int which)
+{
+    uint32 v;
+    uint32 limit = (which == 1) ? 2 : 1;
+
+    if(!cdc_parse_uint(arg, &v))
+    {
+        cdc_err("expected a value");
+        return;
+    }
+
+    if(v > limit)
+    {
+        cdc_err("value out of range");
+        return;
+    }
+
+#if PORT_1014D
+    switch(which)
+    {
+        case 0:
+            if(scopesettings.triggerchannel != v)
+            {
+                scopesettings.triggerchannel = v;
+                ui_display_trigger_channel();
+                fpga_set_trigger_channel();
+
+                //The level maps through the new channel's position and sensitivity, so
+                //re-derive the marker and push it (mirrors UIC_BUTTON_TRIG_CHX)
+                scope_calculate_trigger_vertical_position();
+                fpga_set_trigger_level();
+            }
+            break;
+
+        case 1:
+            scopesettings.triggermode = v;
+            ui_display_trigger_mode();
+            fpga_set_trigger_mode();
+            break;
+
+        case 2:
+            scopesettings.triggeredge = v;
+            ui_display_trigger_edge();
+            fpga_set_trigger_edge();
+            break;
+    }
+
+    cdc_ok();
+#else
+    cdc_err("not supported on this build variant");
+#endif
+}
+
+//------------------------------------------------------------------------------
+//Per-channel setters. Returns 1 if the tail was recognised.
+static int cdc_channel_set(const char *tail, CHANNELSETTINGS *ch)
+{
+    uint32 v;
+
+    if(my_strncasecmp(tail, "VOLTDIV ", 8) == 0)
+    {
+        if(!cdc_parse_uint(&tail[8], &v)) { cdc_err("expected an index");          return 1; }
+        if(v > 6)                         { cdc_err("voltdiv out of range (0-6)"); return 1; }
+#if PORT_1014D
+        {
+            int32 delta = (int32)v - (int32)ch->displayvoltperdiv;
+
+            if(delta != 0)
+            {
+                //sm_set_channel_sensitivity() pushes volts/div and the DC offset, re-maps the
+                //trigger level when the trigger is on this channel, and settles 50ms.
+                int8 saved = setvalue;
+                setvalue = (int8)delta;
+                sm_set_channel_sensitivity(ch);
+                setvalue = saved;
+            }
+
+            usb_send_uint("voltdiv: ", ch->displayvoltperdiv);
+            cdc_ok();
+        }
+#else
+        cdc_err("not supported on this build variant");
+#endif
+        return 1;
+    }
+
+    if(my_strncasecmp(tail, "COUPL ", 6) == 0)
+    {
+        if(!cdc_parse_uint(&tail[6], &v)) { cdc_err("expected 0 (DC) or 1 (AC)"); return 1; }
+        if(v > 1)                         { cdc_err("coupling must be 0 or 1");   return 1; }
+#if PORT_1014D
+        if(ch->coupling != v)
+        {
+            ch->coupling = v;
+
+            //On a switch to AC the DC offset trim no longer applies (mirrors the channel menu)
+            if(ch->coupling)
+                ch->dcoffset = 0;
+
+            fpga_set_channel_coupling(ch);
+            fpga_set_channel_offset(ch);
+
+            //Zeroing the offset shifts the trigger level mapping
+            if(((ch == &scopesettings.channel1) && (scopesettings.triggerchannel == 0)) ||
+               ((ch == &scopesettings.channel2) && (scopesettings.triggerchannel == 1)))
+            {
+                fpga_set_trigger_level();
+            }
+
+            ui_display_channel_coupling(ch);
+        }
+
+        cdc_ok();
+#else
+        cdc_err("not supported on this build variant");
+#endif
+        return 1;
+    }
+
+    if(my_strncasecmp(tail, "STAT ", 5) == 0)
+    {
+        if(!cdc_parse_uint(&tail[5], &v)) { cdc_err("expected 0 or 1");      return 1; }
+        if(v > 1)                         { cdc_err("state must be 0 or 1"); return 1; }
+#if PORT_1014D
+        //sm_toggle_channel_enable() also moves the trigger source off a channel being
+        //disabled, so toggle through it rather than assigning enable directly.
+        if(ch->enable != v)
+            sm_toggle_channel_enable(ch);
+
+        cdc_ok();
+#else
+        cdc_err("not supported on this build variant");
+#endif
+        return 1;
+    }
+
+    return 0;
+}
+
+//------------------------------------------------------------------------------
+static void cdc_dispatch(char *cmd)
+{
+    //--- identity ---------------------------------------------------------------
+    if(my_strcasecmp(cmd, "*IDN?") == 0)
+    {
+        usb_CDC_send_text("FNIRSI,");
+#if PORT_1014D
+        usb_CDC_send_text("1014D,");
+#else
+        usb_CDC_send_text("1013D,");
+#endif
+        usb_CDC_send_text(VERSION_STRING);
+        usb_send_uint(",FPGA", fpgasettings.fw_FPGA);
+        cdc_end();
+        return;
+    }
+
+    //--- ping -------------------------------------------------------------------
+    if(my_strcasecmp(cmd, "*PING") == 0) { cdc_ok(); return; }
+
+    //--- whole-system snapshot --------------------------------------------------
+    if(my_strcasecmp(cmd, ":SYST:STAT?") == 0) { cdc_system_status(); return; }
+
+    //--- run control ------------------------------------------------------------
+    //Mirrors the RUN/STOP key in sm_1014d.c: set the flag, then repaint the label.
+    if(my_strcasecmp(cmd, ":RUN?") == 0) { cdc_uval(scopesettings.runstate); return; }
+
+    if((my_strcasecmp(cmd, ":RUN") == 0) || (my_strcasecmp(cmd, ":STOP") == 0))
+    {
+        scopesettings.runstate = (my_strcasecmp(cmd, ":RUN") == 0)
+                                   ? RUN_STATE_RUNNING : RUN_STATE_STOPPED;
+#if PORT_1014D
+        ui_display_run_stop_text();
+#endif
+        cdc_ok();
+        return;
+    }
+
+    //--- acquisition ------------------------------------------------------------
+    if(my_strcasecmp(cmd, ":ACQ:POINTS?") == 0) { cdc_uval(scopesettings.samplecount);  return; }
+    if(my_strcasecmp(cmd, ":ACQ:NOFS?")   == 0) { cdc_uval(scopesettings.nofsamples);   return; }
+    if(my_strcasecmp(cmd, ":ACQ:TOTAL?")  == 0) { cdc_uval(fpgasettings.totalsamples);  return; }
+    if(my_strcasecmp(cmd, ":ACQ:MODE?")   == 0) { cdc_uval(scopesettings.ACQ_trace);    return; }
+    if(my_strcasecmp(cmd, ":ACQ:AVG?")    == 0) { cdc_uval(scopesettings.average_mode); return; }
+
+    //--- timebase ---------------------------------------------------------------
+    //Index into Atlan4 35-entry space (0 = 50 s/div; below 11 = long/roll mode).
+    if(my_strcasecmp(cmd, ":TIM:SCALE?") == 0) { cdc_uval(scopesettings.timeperdiv);  return; }
+    if(my_strcasecmp(cmd, ":TIM:RATE?")  == 0) { cdc_uval(scopesettings.samplerate);  return; }
+    if(my_strcasecmp(cmd, ":TIM:LONG?")  == 0) { cdc_uval(scopesettings.long_mode);   return; }
+    if(my_strcasecmp(cmd, ":TIM:POS?")   == 0) { cdc_ival(scopesettings.triggerhorizontalposition); return; }
+
+    //--- trigger ----------------------------------------------------------------
+    if(my_strcasecmp(cmd, ":TRIG:SOUR?") == 0) { cdc_uval(scopesettings.triggerchannel); return; }
+    if(my_strcasecmp(cmd, ":TRIG:MODE?") == 0) { cdc_uval(scopesettings.triggermode);    return; }
+    if(my_strcasecmp(cmd, ":TRIG:EDGE?") == 0) { cdc_uval(scopesettings.triggeredge);    return; }
+    if(my_strcasecmp(cmd, ":TRIG:LEV?")  == 0) { cdc_uval(scopesettings.triggerlevel);   return; }
+
+    //--- setters ----------------------------------------------------------------
+    if(my_strncasecmp(cmd, ":TIM:SCALE ", 11) == 0) { cdc_set_timebase(&cmd[11]);         return; }
+    if(my_strncasecmp(cmd, ":TRIG:LEV ",  10) == 0) { cdc_set_trigger_level(&cmd[10]);    return; }
+    if(my_strncasecmp(cmd, ":TRIG:SOUR ", 11) == 0) { cdc_set_trigger_field(&cmd[11], 0); return; }
+    if(my_strncasecmp(cmd, ":TRIG:MODE ", 11) == 0) { cdc_set_trigger_field(&cmd[11], 1); return; }
+    if(my_strncasecmp(cmd, ":TRIG:EDGE ", 11) == 0) { cdc_set_trigger_field(&cmd[11], 2); return; }
+
+    //--- waveform ---------------------------------------------------------------
+    //Note: with average_mode on, the displayed trace comes from channelXtracebufferAVG;
+    //this dumps the raw acquisition buffer, same as the on-scope waveform file does.
+    if(my_strncasecmp(cmd, ":WAV:DATA?", 10) == 0)
+    {
+        cdc_wave_dump(&cmd[10]);
+        return;
+    }
+
+    //--- per-channel ------------------------------------------------------------
+    if(my_strncasecmp(cmd, ":CH1:", 5) == 0)
+    {
+        if(cdc_channel_query(&cmd[5], &scopesettings.channel1)) return;
+        if(cdc_channel_set(&cmd[5], &scopesettings.channel1))   return;
+        cdc_err("unknown CH1 subcommand");
+        return;
+    }
+
+    if(my_strncasecmp(cmd, ":CH2:", 5) == 0)
+    {
+        if(cdc_channel_query(&cmd[5], &scopesettings.channel2)) return;
+        if(cdc_channel_set(&cmd[5], &scopesettings.channel2))   return;
+        cdc_err("unknown CH2 subcommand");
+        return;
+    }
+
+    cdc_err("unknown command");
+}
+
+//------------------------------------------------------------------------------
+// Drains the RX ring the EP2 interrupt fills (usb_CDC_out_ep_callback in cdc_class.c),
+// assembles whole lines, and dispatches them. Called once per main-loop iteration.
 void usb_CDC_process_rx(void)
 {
-    static char cmd_buf[16];
-    static uint8 idx = 0;
+    static char   cmd_buf[CDC_CMD_BUF_SIZE];
+    static uint16 idx = 0;
+    static uint8  overflow = 0;
 
     while(usb_rx_out_idx != usb_rx_in_idx)
     {
         char c = usb_rx[usb_rx_out_idx++];
         usb_rx_out_idx %= sizeof(usb_rx);
 
-        if(c == '\n' || c == '\r')
+        if((c != '\n') && (c != '\r'))
         {
-            cmd_buf[idx] = 0;
+            //Truncate rather than overrun, and remember that we did so, so the caller
+            //gets an error instead of a silently mangled command. (The old code stopped
+            //storing but never reset idx, so an over-long line merged into the next one.)
+            if(idx < (CDC_CMD_BUF_SIZE - 1))
+                cmd_buf[idx++] = c;
+            else
+                overflow = 1;
 
-            if(strcmp(cmd_buf, "#ECHO") == 0)
-            {
-               // usb_ch340_send_data((uint8*)&SysParam, sizeof(SysParam));
-            }
+            continue;
+        }
 
-            idx = 0; // reset command buffer
-        }
-        else if(idx < sizeof(cmd_buf) - 1)
-        {
-            cmd_buf[idx++] = c;
-        }
+        //Line terminator. Ignore empty lines so CRLF does not dispatch twice.
+        if((idx == 0) && (overflow == 0))
+            continue;
+
+        cmd_buf[idx] = 0;
+
+        if(overflow)
+            cdc_err("command too long");
+        else
+            cdc_dispatch(cmd_buf);
+
+        idx      = 0;
+        overflow = 0;
+
+        //Push the queued reply out of the TX ring. Safe here: main-loop context.
+        usb_CDC_in_ep_callback();
     }
 }
 
