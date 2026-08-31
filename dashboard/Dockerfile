@@ -1,4 +1,7 @@
-FROM python:3.12-slim
+# Parameterised so the image can be built on a host that cannot reach the registry:
+# point BASE at any python slim image already present locally.
+ARG BASE=python:3.12-slim
+FROM ${BASE}
 
 WORKDIR /app
 
