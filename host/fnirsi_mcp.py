@@ -262,4 +262,22 @@ def raw_command(command: str) -> dict:
 
 
 if __name__ == "__main__":
-    mcp.run()
+    # stdio by default (local use). Set FNIRSI_MCP_TRANSPORT=streamable-http to serve over
+    # HTTP instead -- which is how this runs on a remote host such as a Pi with the scope
+    # attached, with the port then published to the outside world by whatever tunnel or
+    # proxy fronts that machine.
+    transport = os.environ.get("FNIRSI_MCP_TRANSPORT", "stdio")
+
+    if transport == "stdio":
+        mcp.run()
+    else:
+        host = os.environ.get("FNIRSI_MCP_HOST", "127.0.0.1")
+        port = int(os.environ.get("FNIRSI_MCP_PORT", "8765"))
+        try:
+            mcp.run(transport=transport, host=host, port=port)
+        except TypeError:
+            # Older SDKs take host/port from settings rather than run() kwargs.
+            for attr, value in (("host", host), ("port", port)):
+                if hasattr(mcp, "settings"):
+                    setattr(mcp.settings, attr, value)
+            mcp.run(transport=transport)
