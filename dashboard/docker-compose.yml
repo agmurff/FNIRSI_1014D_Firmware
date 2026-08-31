@@ -1,0 +1,13 @@
+services:
+  fnirsi-dashboard:
+    build: .
+    container_name: fnirsi-dashboard
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # The machine the scope is physically attached to.
+      FNIRSI_MCP_URL: "http://10.0.20.172:8765/mcp"
+      POLL_INTERVAL: "3.0"
+      CAPTURE_CH2: "1"
+      WAVE_POINTS: "600"
