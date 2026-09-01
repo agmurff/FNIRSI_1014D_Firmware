@@ -170,6 +170,52 @@ def capture_waveform(channel: str = "CH1", max_points: int = 512,
 
 
 @mcp.tool()
+def live_view(decimation: int = 5) -> dict:
+    """
+    The whole live view in one scope round trip: full status plus a decimated trace
+    for each enabled channel. This is the cheapest way to watch the instrument --
+    prefer it over separate get_status/capture_waveform calls when polling.
+
+    decimation: firmware sends every Nth sample (1-64, default 5 -> 600 points).
+    On firmware predating :LIVE? it falls back to the separate calls automatically.
+    """
+    def go(s, decimation):
+        try:
+            status, waves = s.live(decimation)
+        except ScopeError:
+            status = s.status()
+            waves = {}
+            if status.get("ch1_enable"):
+                waves["CH1"] = s.capture("CH1", with_scaling=False,
+                                         decimation=decimation)
+            if status.get("ch2_enable"):
+                waves["CH2"] = s.capture("CH2", with_scaling=False,
+                                         decimation=decimation)
+
+        def pack(wf):
+            if wf is None:
+                return None
+            ss = wf.samples
+            return {
+                "channel": wf.channel,
+                "samples": ss,
+                "sample_count": len(ss),
+                "min": min(ss) if ss else None,
+                "max": max(ss) if ss else None,
+                "mean": round(sum(ss) / len(ss), 2) if ss else None,
+                "peak_to_peak": (max(ss) - min(ss)) if ss else None,
+                "wire_decimation": wf.decimation,
+                "units": "raw ADC counts (0-255, mid-scale 128)",
+            }
+
+        return {"status": status,
+                "ch1": pack(waves.get("CH1")),
+                "ch2": pack(waves.get("CH2"))}
+
+    return _guarded(go)(decimation)
+
+
+@mcp.tool()
 def set_timebase(index: int) -> dict:
     """
     Set the horizontal timebase by index into the firmware's 35-entry table

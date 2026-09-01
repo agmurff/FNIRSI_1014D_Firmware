@@ -334,7 +334,7 @@ static int cdc_channel_query(const char *tail, CHANNELSETTINGS *ch)
 }
 
 //------------------------------------------------------------------------------
-static void cdc_system_status(void)
+static void cdc_system_status_body(void)
 {
     usb_send_uint("runstate: ",     scopesettings.runstate);
     usb_send_uint("timeperdiv: ",   scopesettings.timeperdiv);
@@ -375,7 +375,11 @@ static void cdc_system_status(void)
 
     usb_send_uint("xymode: ",       scopesettings.xymodedisplay);
     usb_send_uint("fw_fpga: ",      fpgasettings.fw_FPGA);
+}
 
+static void cdc_system_status(void)
+{
+    cdc_system_status_body();
     cdc_end();
 }
 
@@ -387,6 +391,8 @@ static void cdc_system_status(void)
 // The 32 KB TX ring SILENTLY TRUNCATES when full (usb_CDC_send_text clamps to free space),
 // so the ring is flushed every line rather than queueing the whole trace and hoping.
 #define CDC_WAV_PER_LINE   32
+
+static void cdc_wave_emit(const uint8 *buf, const char *name, uint32 decim);
 
 static void cdc_wave_dump(const char *tail)
 {
@@ -438,6 +444,15 @@ static void cdc_wave_dump(const char *tail)
         return;
     }
 
+    cdc_wave_emit(buf, name, decim);
+    cdc_end();
+}
+
+//Emit one channel's header + hex block, no terminator -- shared by :WAV:DATA? and :LIVE?
+static void cdc_wave_emit(const uint8 *buf, const char *name, uint32 decim)
+{
+    uint32 n, i, sent;
+
     n = scopesettings.samplecount;
 
     if(n > MAX_SAMPLE_BUFFER_SIZE)
@@ -446,7 +461,7 @@ static void cdc_wave_dump(const char *tail)
     sent = (n + decim - 1) / decim;
 
     //Header first, so the host knows how many samples to expect before the hex starts:
-    //"#WAV <ch> <count> <decimation>", count being the number actually transmitted
+    //"#WAV <ch> <count>" then a "decim: N" line
     usb_CDC_send_text("#WAV ");
     usb_CDC_send_text(name);
     usb_CDC_send_text(" ");
@@ -474,6 +489,44 @@ static void cdc_wave_dump(const char *tail)
         usb_CDC_send_text("\n");
         usb_CDC_in_ep_callback();
     }
+}
+
+//------------------------------------------------------------------------------
+// :LIVE? [decimation] -- the whole live view in ONE round trip: the status block,
+// then a decimated wave block per enabled channel. Exists because the per-command
+// latency floor (the serial link is serviced once per acquisition loop, ~350 ms)
+// dominates a poll cycle, not the transfer: status + two captures as separate
+// commands costs three loop periods, this costs one.
+static void cdc_live(const char *arg)
+{
+    uint32 decim = 5;
+
+    while(*arg == ' ')
+        arg++;
+
+    if((*arg >= '0') && (*arg <= '9'))
+    {
+        decim = my_atoul(arg);
+
+        if(decim < 1)
+            decim = 1;
+
+        if(decim > 64)
+            decim = 64;
+    }
+    else if(*arg != 0)
+    {
+        cdc_err("usage: :LIVE? [decimation]");
+        return;
+    }
+
+    cdc_system_status_body();
+
+    if(scopesettings.channel1.enable)
+        cdc_wave_emit((const uint8 *)channel1tracebuffer, "CH1", decim);
+
+    if(scopesettings.channel2.enable)
+        cdc_wave_emit((const uint8 *)channel2tracebuffer, "CH2", decim);
 
     cdc_end();
 }
@@ -770,6 +823,9 @@ static void cdc_dispatch(char *cmd)
 
     //--- whole-system snapshot --------------------------------------------------
     if(my_strcasecmp(cmd, ":SYST:STAT?") == 0) { cdc_system_status(); return; }
+
+    //--- live view: status + enabled channels' traces, one round trip ------------
+    if(my_strncasecmp(cmd, ":LIVE?", 6) == 0) { cdc_live(&cmd[6]); return; }
 
     //--- run control ------------------------------------------------------------
     //Mirrors the RUN/STOP key in sm_1014d.c: set the flag, then repaint the label.

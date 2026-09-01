@@ -126,17 +126,14 @@ async def _poll_once(session: ClientSession) -> None:
     started = time.monotonic()
 
     async with MCP_LOCK:
-        status = _unwrap(await session.call_tool("get_status", {}))
-        if isinstance(status, dict) and status.get("error"):
-            raise RuntimeError(status["error"])
+        r = _unwrap(await session.call_tool("live_view",
+                                            {"decimation": WIRE_DECIMATION}))
+        if isinstance(r, dict) and r.get("error"):
+            raise RuntimeError(r["error"])
 
-        ch1 = _unwrap(await session.call_tool("capture_waveform", {
-            "channel": "CH1", "max_points": 3000, "decimation": WIRE_DECIMATION}))
-
-        ch2 = None
-        if CAPTURE_CH2 and status and status.get("ch2_enable"):
-            ch2 = _unwrap(await session.call_tool("capture_waveform", {
-                "channel": "CH2", "max_points": 3000, "decimation": WIRE_DECIMATION}))
+        status = r.get("status")
+        ch1 = r.get("ch1")
+        ch2 = r.get("ch2") if CAPTURE_CH2 else None
 
     STATE.update(
         connected=True,

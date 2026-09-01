@@ -205,8 +205,11 @@ class FnirsiScope:
 
     def status(self) -> dict:
         """Full settings snapshot, with decoded labels alongside the raw indices."""
+        return self._status_from_lines(self.command(":SYST:STAT?"))
+
+    def _status_from_lines(self, lines) -> dict:
         out: dict = {}
-        for line in self.command(":SYST:STAT?"):
+        for line in lines:
             if ":" not in line:
                 continue
             key, _, value = line.partition(":")
@@ -241,6 +244,55 @@ class FnirsiScope:
                 out[f"{key}_label"] = table.get(out[key])
 
         return out
+
+    # -- combined live view --------------------------------------------------
+    def live(self, decimation: int = 5) -> tuple:
+        """
+        One round trip for the whole live view: the full status block plus a decimated
+        trace for every enabled channel (firmware :LIVE?). Returns (status, waves) with
+        waves keyed "CH1"/"CH2". Exists because the per-command latency floor -- the
+        scope services the serial link once per acquisition loop -- dominates a poll
+        cycle, so three commands cost three loop periods and this costs one.
+
+        Raises ScopeError on firmware predating :LIVE?.
+        """
+        d = max(1, min(64, int(decimation)))
+        lines = self.command(f":LIVE? {d}", read_timeout=30.0)
+
+        status_lines: list = []
+        blocks: list = []
+        cur = None
+        for line in lines:
+            if line.startswith("#WAV"):
+                parts = line.split()
+                if len(parts) < 3:
+                    raise ScopeError(f"malformed wave header: {line!r}")
+                cur = {"channel": parts[1], "expected": int(parts[2]),
+                       "decim": 1, "hex": []}
+                blocks.append(cur)
+            elif cur is None:
+                status_lines.append(line)
+            elif line.startswith("decim:"):
+                cur["decim"] = int(line.split(":", 1)[1])
+            else:
+                cur["hex"].append(line)
+
+        status = self._status_from_lines(status_lines)
+
+        waves: dict = {}
+        for b in blocks:
+            text = "".join(b["hex"])
+            if len(text) % 2:
+                raise ScopeError("odd hex length in live wave block")
+            samples = [int(text[i:i + 2], 16) for i in range(0, len(text), 2)]
+            if len(samples) != b["expected"]:
+                raise ScopeError(
+                    f"{b['channel']}: header said {b['expected']}, got {len(samples)}")
+            wf = Waveform(channel=b["channel"], samples=samples)
+            wf.decimation = b["decim"]
+            waves[b["channel"]] = wf
+
+        return status, waves
 
     # -- run control -------------------------------------------------------
     def run(self) -> None:
